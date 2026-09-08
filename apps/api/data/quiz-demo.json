@@ -1,0 +1,181 @@
+{
+  "id": "ic-demo",
+  "title": "Ingeniería del Conocimiento — repaso",
+  "questions": [
+    {
+      "id": "q1-componentes",
+      "prompt": "En la arquitectura clásica de un sistema experto, ¿qué componente almacena el conocimiento del dominio como hechos y reglas, separado del mecanismo que razona sobre él?",
+      "timeLimitSec": 25,
+      "options": [
+        {
+          "id": "q1-a",
+          "label": "A",
+          "text": "El motor de inferencia",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "q1-b",
+          "label": "B",
+          "text": "La base de conocimiento",
+          "color": "#ffce5c",
+          "isCorrect": true
+        },
+        {
+          "id": "q1-c",
+          "label": "C",
+          "text": "La memoria de trabajo",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "q1-d",
+          "label": "D",
+          "text": "El módulo de explicación",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "q2-encadenamiento",
+      "prompt": "Un sistema de diagnóstico parte de la hipótesis «el paciente tiene gripe» y busca reglas cuyo CONSECUENTE sea esa hipótesis, para luego verificar sus antecedentes. ¿Qué estrategia de inferencia está usando?",
+      "timeLimitSec": 25,
+      "options": [
+        {
+          "id": "q2-a",
+          "label": "A",
+          "text": "Encadenamiento hacia adelante",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "q2-b",
+          "label": "B",
+          "text": "Razonamiento basado en casos",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "q2-c",
+          "label": "C",
+          "text": "Encadenamiento hacia atrás",
+          "color": "#8ec9ff",
+          "isCorrect": true
+        },
+        {
+          "id": "q2-d",
+          "label": "D",
+          "text": "Búsqueda en anchura sobre los hechos",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "q3-conflictos",
+      "prompt": "En el ciclo de un sistema de producción, varias reglas resultan aplicables a la vez sobre la memoria de trabajo. ¿Cómo se llama la fase que decide cuál de ellas se dispara?",
+      "timeLimitSec": 25,
+      "options": [
+        {
+          "id": "q3-a",
+          "label": "A",
+          "text": "Emparejamiento (matching)",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "q3-b",
+          "label": "B",
+          "text": "Unificación",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "q3-c",
+          "label": "C",
+          "text": "Encadenamiento",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "q3-d",
+          "label": "D",
+          "text": "Resolución de conflictos",
+          "color": "#ff9ec4",
+          "isCorrect": true
+        }
+      ]
+    },
+    {
+      "id": "q4-ontologias",
+      "prompt": "En una ontología, «Perro es-un Mamífero» relaciona dos CLASES. ¿Qué expresa exactamente esa relación?",
+      "timeLimitSec": 25,
+      "options": [
+        {
+          "id": "q4-a",
+          "label": "A",
+          "text": "Subsunción: Perro es subclase de Mamífero y hereda sus propiedades",
+          "color": "#7ee3a0",
+          "isCorrect": true
+        },
+        {
+          "id": "q4-b",
+          "label": "B",
+          "text": "Instanciación: Perro es un individuo concreto de Mamífero",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "q4-c",
+          "label": "C",
+          "text": "Composición: Mamífero está formado por partes Perro",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "q4-d",
+          "label": "D",
+          "text": "Equivalencia: Perro y Mamífero denotan el mismo conjunto",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "q5-adquisicion",
+      "prompt": "Se llama «cuello de botella de la adquisición del conocimiento» a un problema clásico de la ingeniería del conocimiento. ¿A cuál?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "q5-a",
+          "label": "A",
+          "text": "El motor de inferencia se vuelve lento cuando hay muchas reglas",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "q5-b",
+          "label": "B",
+          "text": "La base de conocimiento no cabe en memoria principal",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "q5-c",
+          "label": "C",
+          "text": "Extraer y formalizar el conocimiento tácito del experto humano es lento y difícil",
+          "color": "#8ec9ff",
+          "isCorrect": true
+        },
+        {
+          "id": "q5-d",
+          "label": "D",
+          "text": "Los usuarios finales no confían en las explicaciones del sistema",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    }
+  ]
+}

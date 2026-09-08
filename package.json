@@ -1,0 +1,20 @@
+{
+  "name": "ingconoc-game",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --if-present dev",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "loadtest": "node scripts/loadtest.ts"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.1",
+    "typescript": "^5.9.2"
+  }
+}

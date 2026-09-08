@@ -1,0 +1,14 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# esbuild necesita su postinstall para bajar el binario nativo (vite/vitest).
+allowBuilds:
+  esbuild: set this to true or false
+
+onlyBuiltDependencies:
+  - esbuild
+
+# pnpm 12 falla el install si algun postinstall queda sin aprobar. Lo bajamos a
+# aviso: esbuild trae su binario en @esbuild/win32-x64, que si se instala.
+strictDepBuilds: false
