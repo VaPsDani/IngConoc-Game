@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+/* Sin rebote, sin scroll, sin seleccion accidental: se juega con una mano. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: #061a22;
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  overflow: hidden;
+}
+
+canvas {
+  /* Redundante con la clase touch-none, pero no depende de Tailwind. */
+  touch-action: none;
+}
