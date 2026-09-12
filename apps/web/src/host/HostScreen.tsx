@@ -1,8 +1,9 @@
 /**
  * HostScreen.tsx — La pantalla del proyector. Texto grande, alto contraste.
  *
- * Se lee desde el fondo del salon, asi que todo lo importante (codigo, opciones,
- * countdown) va en tamanos que se ven a 10 metros.
+ * Ojo con lo que se pinta aquí: esta pantalla está proyectada delante de 40
+ * personas. El código de sala es público a propósito; la clave de recuperación
+ * va en letra pequeña y solo en el lobby.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -16,12 +17,20 @@ import {
   type QuestionId,
   type RosterPlayer,
 } from '@ingconoc/shared';
-import { createSocket, hostStore, syncClock, type GameSocket } from '../net/socket';
+import {
+  apiUrl,
+  createSocket,
+  hostKeyStore,
+  hostStore,
+  syncClock,
+  type GameSocket,
+} from '../net/socket';
 
 type Session = {
   sessionId: string;
   code: string;
   joinUrl: string;
+  hostToken: string;
   quizTitle: string;
   totalQuestions: number;
 };
@@ -46,6 +55,8 @@ export default function HostScreen() {
   const clockRef = useRef(new ClientClock());
 
   const [connected, setConnected] = useState(false);
+  const [hostKey, setHostKey] = useState(() => hostKeyStore.get());
+  const [needsKey, setNeedsKey] = useState(() => hostKeyStore.get().length === 0);
   const [session, setSession] = useState<Session | null>(null);
   const [roster, setRoster] = useState<RosterPlayer[]>([]);
   const [phase, setPhase] = useState<Phase>('LOBBY');
@@ -56,6 +67,10 @@ export default function HostScreen() {
   const [final, setFinal] = useState<{ podium: LeaderboardRow[]; full: LeaderboardRow[] } | null>(
     null,
   );
+  const [error, setError] = useState<string | null>(null);
+
+  const hostKeyRef = useRef(hostKey);
+  hostKeyRef.current = hostKey;
 
   useEffect(() => {
     const socket = createSocket();
@@ -64,29 +79,53 @@ export default function HostScreen() {
     socket.on('connect', () => {
       setConnected(true);
       const saved = hostStore.get();
-      // El host tambien reconecta: si se cae el navegador del proyector, la
-      // sala sigue viva en el servidor con todos los puntajes.
-      if (saved) socket.emit('host:resume', saved);
-      else socket.emit('host:createSession', { quizId: 'ic-demo' });
+      // El proyector también reconecta: si se cae el navegador, la sala sigue
+      // viva en el servidor con todos los puntajes.
+      if (saved) socket.emit('host:resume', { sessionId: saved.sessionId, token: saved.token });
+      else if (hostKeyRef.current) {
+        socket.emit('host:createSession', { quizId: 'ic-demo', hostKey: hostKeyRef.current });
+      }
       void syncClock(socket, clockRef.current);
     });
     socket.on('disconnect', () => setConnected(false));
 
     socket.on('host:sessionCreated', (p) => {
-      hostStore.set({ sessionId: p.sessionId, token: p.token });
+      hostStore.set({
+        sessionId: p.sessionId,
+        token: p.token,
+        hostToken: p.hostToken,
+        code: p.code,
+      });
       setSession({
         sessionId: p.sessionId,
         code: p.code,
         joinUrl: p.joinUrl,
+        hostToken: p.hostToken,
         quizTitle: p.quizTitle,
         totalQuestions: p.totalQuestions,
       });
+      setNeedsKey(false);
+      setError(null);
     });
 
-    socket.on('host:error', () => {
-      // Sesion vieja que ya no existe: se pide una nueva.
-      hostStore.clear();
-      socket.emit('host:createSession', { quizId: 'ic-demo' });
+    socket.on('host:error', (e) => {
+      if (e.code === 'RESUME_FAILED') {
+        // Sesión vieja que ya no existe: se pide una nueva con la clave.
+        hostStore.clear();
+        if (hostKeyRef.current) {
+          socket.emit('host:createSession', { quizId: 'ic-demo', hostKey: hostKeyRef.current });
+        } else {
+          setNeedsKey(true);
+        }
+        return;
+      }
+      if (e.code === 'BAD_HOST_KEY') {
+        hostKeyStore.clear();
+        setNeedsKey(true);
+        setError('Clave de anfitrión incorrecta');
+        return;
+      }
+      setError(e.message);
     });
 
     socket.on('host:roster', (p) => setRoster(p.players));
@@ -107,9 +146,17 @@ export default function HostScreen() {
     };
   }, []);
 
-  /** Los controles del host son todos eventos sin payload. */
   const emit = useCallback((event: HostAction) => {
     socketRef.current?.emit(event);
+  }, []);
+
+  const submitKey = useCallback((key: string) => {
+    const clean = key.trim();
+    if (clean.length === 0) return;
+    hostKeyStore.set(clean);
+    setHostKey(clean);
+    setError(null);
+    socketRef.current?.emit('host:createSession', { quizId: 'ic-demo', hostKey: clean });
   }, []);
 
   const newSession = useCallback(() => {
@@ -118,7 +165,8 @@ export default function HostScreen() {
     setReveal(null);
     setRoster([]);
     setPhase('LOBBY');
-    socketRef.current?.emit('host:createSession', { quizId: 'ic-demo' });
+    setSession(null);
+    socketRef.current?.emit('host:createSession', { quizId: 'ic-demo', hostKey: hostKeyRef.current });
   }, []);
 
   return (
@@ -129,14 +177,21 @@ export default function HostScreen() {
         </div>
       )}
 
-      {!session && (
+      {needsKey && <KeyGate onSubmit={submitKey} error={error} />}
+
+      {!needsKey && !session && (
         <Centered>
           <p className="text-3xl text-white/60">Creando sala…</p>
         </Centered>
       )}
 
       {session && phase === 'LOBBY' && (
-        <Lobby session={session} roster={roster} onStart={() => emit('host:startGame')} onKick={(id) => socketRef.current?.emit('host:kickPlayer', { playerId: id })} />
+        <Lobby
+          session={session}
+          roster={roster}
+          onStart={() => emit('host:startGame')}
+          onKick={(id) => socketRef.current?.emit('host:kickPlayer', { playerId: id })}
+        />
       )}
 
       {session && phase === 'QUESTION_ACTIVE' && question && (
@@ -159,8 +214,49 @@ export default function HostScreen() {
         />
       )}
 
-      {session && phase === 'FINAL' && <FinalView final={final} onNew={newSession} />}
+      {session && phase === 'FINAL' && (
+        <FinalView final={final} session={session} onNew={newSession} />
+      )}
     </main>
+  );
+}
+
+// --- Puerta de la clave de anfitrión ----------------------------------------
+
+function KeyGate({ onSubmit, error }: { onSubmit: (k: string) => void; error: string | null }) {
+  const [value, setValue] = useState('');
+  return (
+    <Centered>
+      <div className="w-full max-w-md rounded-2xl bg-[#0f3543] p-8 ring-1 ring-white/10">
+        <h1 className="text-3xl font-bold">Clave de anfitrión</h1>
+        <p className="mt-2 text-white/60">
+          Es la variable <code className="font-mono">HOST_KEY</code> del servidor. Sin ella
+          cualquiera podría crear salas.
+        </p>
+        <input
+          type="password"
+          value={value}
+          autoFocus
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && onSubmit(value)}
+          className="mt-6 w-full rounded-xl bg-black/30 px-4 py-4 text-2xl outline-none ring-1 ring-white/15 focus:ring-emerald-400"
+        />
+        {error && <p className="mt-3 text-rose-300">{error}</p>}
+        <button
+          type="button"
+          onClick={() => onSubmit(value)}
+          className="mt-6 w-full rounded-xl bg-emerald-400 px-6 py-4 text-2xl font-bold text-emerald-950"
+        >
+          Crear sala
+        </button>
+        <p className="mt-4 text-sm text-white/40">
+          ¿Ya tienes una sala abierta en otro dispositivo?{' '}
+          <a href="/host/recover" className="underline">
+            Reclamarla
+          </a>
+        </p>
+      </div>
+    </Centered>
   );
 }
 
@@ -178,13 +274,18 @@ function Lobby({
   onKick: (id: string) => void;
 }) {
   const [qr, setQr] = useState<string | null>(null);
+  const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
     let alive = true;
-    // Import dinamico: `qrcode` solo lo baja el proyector, no los 40 celulares.
+    // Import dinámico: `qrcode` solo lo baja el proyector, no los 40 celulares.
     void import('qrcode').then((mod) =>
       mod.default
-        .toDataURL(session.joinUrl, { width: 420, margin: 1, color: { dark: '#061a22', light: '#ffffff' } })
+        .toDataURL(session.joinUrl, {
+          width: 420,
+          margin: 1,
+          color: { dark: '#061a22', light: '#ffffff' },
+        })
         .then((url) => alive && setQr(url))
         .catch(() => alive && setQr(null)),
     );
@@ -226,7 +327,9 @@ function Lobby({
               <li
                 key={p.id}
                 className={`group flex items-center gap-2 rounded-full px-4 py-2 text-2xl ring-1 ${
-                  p.connected ? 'bg-white/10 ring-white/15' : 'bg-white/5 text-white/40 ring-white/10'
+                  p.connected
+                    ? 'bg-white/10 ring-white/15'
+                    : 'bg-white/5 text-white/40 ring-white/10'
                 }`}
               >
                 {p.nickname}
@@ -255,6 +358,25 @@ function Lobby({
           </button>
         </div>
       </div>
+
+      {/*
+        Clave de recuperación: letra pequeña y oculta tras un clic. Esta pantalla
+        está proyectada; si se muestra en grande, cualquiera de la clase puede
+        reclamar la sala desde su celular.
+      */}
+      <footer className="mt-4 text-sm text-white/30">
+        {showToken ? (
+          <span>
+            Clave de recuperación:{' '}
+            <code className="font-mono text-white/70">{session.hostToken}</code> — anótala. Sirve
+            para reclamar esta sala desde otro dispositivo en <code>/host/recover</code>.
+          </span>
+        ) : (
+          <button type="button" onClick={() => setShowToken(true)} className="underline">
+            Mostrar clave de recuperación (solo tú deberías verla)
+          </button>
+        )}
+      </footer>
     </div>
   );
 }
@@ -280,8 +402,8 @@ function ActiveQuestion({
 
   useEffect(() => {
     if (!deadlineAt) return;
-    // Se recalcula contra el reloj del servidor, no se decrementa un contador:
-    // asi no deriva aunque el navegador del proyector pierda frames.
+    // Se recalcula contra el reloj del servidor en vez de decrementar un
+    // contador: así no deriva aunque el navegador pierda frames.
     const id = setInterval(() => setLeftMs(Math.max(0, deadlineAt - clock.now())), 100);
     return () => clearInterval(id);
   }, [deadlineAt, clock]);
@@ -296,7 +418,7 @@ function ActiveQuestion({
           Pregunta {question.index + 1} de {question.total}
         </span>
         <span>
-          <span className="text-emerald-300 font-bold">{progress.answered}</span> de{' '}
+          <span className="font-bold text-emerald-300">{progress.answered}</span> de{' '}
           {progress.total} respondieron
         </span>
       </div>
@@ -358,9 +480,7 @@ function RevealView({
   onNext: () => void;
   onEnd: () => void;
 }) {
-  const total = reveal
-    ? reveal.distribution.reduce((a, d) => a + d.count, 0) + reveal.noAnswer
-    : 0;
+  const total = reveal ? reveal.distribution.reduce((a, d) => a + d.count, 0) + reveal.noAnswer : 0;
   const max = reveal ? Math.max(1, ...reveal.distribution.map((d) => d.count)) : 1;
 
   return (
@@ -462,18 +582,56 @@ function RevealView({
 
 // --- Final -------------------------------------------------------------------
 
+/**
+ * Descarga vía POST: la clave va en el CUERPO, nunca en la URL. Una URL con el
+ * token acabaría en el historial, en los logs de Caddy y en el Referer.
+ */
+async function downloadResults(
+  code: string,
+  hostToken: string,
+  ext: 'json' | 'csv',
+): Promise<string | null> {
+  try {
+    const res = await fetch(`${apiUrl()}/api/results/${code}.${ext}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hostToken }),
+    });
+    if (!res.ok) return `El servidor respondió ${res.status}`;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${code}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return null;
+  } catch (err) {
+    return (err as Error).message;
+  }
+}
+
 function FinalView({
   final,
+  session,
   onNew,
 }: {
   final: { podium: LeaderboardRow[]; full: LeaderboardRow[] } | null;
+  session: Session;
   onNew: () => void;
 }) {
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const podium = final?.podium ?? [];
   // Orden visual del podio: 2 - 1 - 3.
   const order = [podium[1], podium[0], podium[2]];
   const heights = ['h-40', 'h-56', 'h-32'];
   const medals = ['🥈', '🥇', '🥉'];
+
+  const download = (ext: 'json' | 'csv') => {
+    void downloadResults(session.code, session.hostToken, ext).then(setDownloadError);
+  };
 
   return (
     <div className="flex min-h-[100dvh] flex-col p-8">
@@ -521,17 +679,35 @@ function FinalView({
         </table>
       </div>
 
-      <button
-        type="button"
-        onClick={onNew}
-        className="mt-6 rounded-2xl bg-white/10 px-8 py-5 text-3xl font-bold ring-1 ring-white/20"
-      >
-        Nueva sala
-      </button>
+      {downloadError && <p className="mt-4 text-xl text-rose-300">{downloadError}</p>}
+
+      <div className="mt-6 flex gap-4">
+        <button
+          type="button"
+          onClick={() => download('csv')}
+          className="flex-1 rounded-2xl bg-white/10 px-6 py-5 text-2xl font-bold ring-1 ring-white/20 hover:bg-white/20"
+        >
+          Descargar CSV
+        </button>
+        <button
+          type="button"
+          onClick={() => download('json')}
+          className="flex-1 rounded-2xl bg-white/10 px-6 py-5 text-2xl font-bold ring-1 ring-white/20 hover:bg-white/20"
+        >
+          Descargar JSON
+        </button>
+        <button
+          type="button"
+          onClick={onNew}
+          className="rounded-2xl bg-emerald-400 px-8 py-5 text-2xl font-bold text-emerald-950"
+        >
+          Nueva sala
+        </button>
+      </div>
     </div>
   );
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="flex min-h-[100dvh] items-center justify-center">{children}</div>;
+  return <div className="flex min-h-[100dvh] items-center justify-center p-6">{children}</div>;
 }

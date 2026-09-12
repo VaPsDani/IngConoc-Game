@@ -58,7 +58,12 @@ export type AnswerDistribution = {
 
 export interface ClientToServerEvents {
   // --- Host ---
-  'host:createSession': (p: { quizId: string }) => void;
+  /**
+   * Crear sala exige la clave del anfitrion (variable de entorno HOST_KEY del
+   * servidor). Sin esto cualquiera en internet puede crear salas en bucle y
+   * llenar la memoria del proceso.
+   */
+  'host:createSession': (p: { quizId: string; hostKey: string }) => void;
   'host:startGame': () => void;
   /** Corta la pregunta antes de que venza el deadline. */
   'host:closeQuestion': () => void;
@@ -70,8 +75,13 @@ export interface ClientToServerEvents {
    * roster (Tarea 8). Documentado en el reporte como anadido.
    */
   'host:kickPlayer': (p: { playerId: PlayerId }) => void;
-  /** Reconexion del host (se guarda igual que la del jugador). */
+  /** Reconexion silenciosa del mismo navegador, con lo de localStorage. */
   'host:resume': (p: { sessionId: SessionId; token: string }) => void;
+  /**
+   * Reclamar la sala desde OTRO dispositivo con la clave de recuperacion.
+   * Nunca viaja por URL ni query string: solo en el cuerpo del evento.
+   */
+  'host:recover': (p: { code: string; hostToken: string }) => void;
 
   // --- Jugador ---
   'player:join': (p: { code: string; nickname: string }) => void;
@@ -97,7 +107,14 @@ export interface ServerToClientEvents {
     sessionId: SessionId;
     code: string;
     joinUrl: string;
+    /** Token de sesion para reconectar en ESTE navegador (localStorage). */
     token: string;
+    /**
+     * Clave de recuperacion de 6 caracteres, para reclamar la sala desde otro
+     * dispositivo. La pantalla del host la muestra UNA sola vez y en letra
+     * chica: esa pantalla esta proyectada delante de 40 personas.
+     */
+    hostToken: string;
     quizTitle: string;
     totalQuestions: number;
   }) => void;
@@ -146,6 +163,11 @@ export interface ServerToClientEvents {
      */
     answered: boolean;
     totalPlayers: number;
+    /**
+     * Si hay un anfitrion conectado. Si se cae, el celular dice "esperando al
+     * anfitrion" en vez de un error: la sala sigue viva y nadie pierde puntaje.
+     */
+    hostConnected: boolean;
     /** Resultado de la pregunta anterior; presente en REVEAL y DISCUSSION. */
     lastResult?: PlayerResult;
   }) => void;

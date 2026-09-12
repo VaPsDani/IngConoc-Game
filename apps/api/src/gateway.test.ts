@@ -16,6 +16,24 @@ import { Server } from 'socket.io';
 import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import type { ClientToServerEvents, Quiz, ServerToClientEvents } from '@ingconoc/shared';
 import { Gateway } from './gateway.ts';
+import type { Config } from './config.ts';
+
+export const TEST_HOST_KEY = 'clave-de-prueba-larga';
+
+/** Config de test: sin disco, caps chicos para poder probarlos. */
+export const TEST_CONFIG: Config = {
+  port: 0,
+  hostKey: TEST_HOST_KEY,
+  dataDir: '',
+  webDist: null,
+  publicUrl: 'http://test',
+  trustProxy: false,
+  maxRooms: 3,
+  maxPlayersPerRoom: 60,
+  roomTtlMs: 4 * 60 * 60 * 1000,
+  lobbyIdleTtlMs: 30 * 60 * 1000,
+  snapshotEnabled: false,
+};
 
 const QUIZ: Quiz = {
   id: 'test',
@@ -47,7 +65,7 @@ beforeEach(async () => {
   console.log = () => {};
   httpServer = createServer();
   io = new Server(httpServer, { cors: { origin: true } });
-  gateway = new Gateway(io, new Map([[QUIZ.id, QUIZ]]), 'http://test');
+  gateway = new Gateway(io, new Map([[QUIZ.id, QUIZ]]), TEST_CONFIG);
   gateway.attach();
   await new Promise<void>((resolve) => httpServer.listen(0, resolve));
   port = (httpServer.address() as { port: number }).port;
@@ -120,7 +138,7 @@ type StateEvent = {
 async function makeHost() {
   const host = connect();
   await once(host, 'connect');
-  host.emit('host:createSession', { quizId: QUIZ.id });
+  host.emit('host:createSession', { quizId: QUIZ.id, hostKey: TEST_HOST_KEY });
   const session = await once<{ code: string; sessionId: string; token: string }>(
     host,
     'host:sessionCreated',

@@ -1,0 +1,36 @@
+# TLS automatico. El dominio entra por variable de entorno para poder alternar
+# entre sslip.io (sin dominio propio) y un dominio real sin tocar el fichero.
+#
+#   DOMAIN=140-238-176-12.sslip.io   -> certificado real de Let's Encrypt
+#   DOMAIN=quiz.midominio.com        -> igual, si el DNS apunta a la VM
+#   DOMAIN=localhost                 -> certificado interno de Caddy (pruebas)
+
+{
+	# Si ACME_EMAIL esta vacio, Caddy usa una cuenta anonima igualmente.
+	email {$ACME_EMAIL}
+	# Descomenta para probar contra el staging de Let's Encrypt sin gastar
+	# el limite de 5 certificados por dominio y semana:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Un solo upstream para TODO: la web estatica, /api y /socket.io. Un solo
+	# origen significa cero CORS y WSS heredando este mismo TLS.
+	# Caddy hace de proxy de WebSocket sin configuracion extra.
+	reverse_proxy app:3001 {
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		# Una pregunta dura 30 s y el socket vive toda la clase.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

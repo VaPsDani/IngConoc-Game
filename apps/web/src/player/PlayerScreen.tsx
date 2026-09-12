@@ -34,6 +34,7 @@ type ServerState = {
   myRank: number;
   answered: boolean;
   totalPlayers: number;
+  hostConnected: boolean;
   lastResult?: PlayerResult;
 };
 
@@ -236,6 +237,11 @@ export default function PlayerScreen() {
       {!connected && (
         <div className="absolute inset-x-0 top-0 z-20 bg-amber-500/90 py-1 text-center text-xs font-semibold text-amber-950">
           Sin conexión — reconectando…
+        </div>
+      )}
+      {connected && state && !state.hostConnected && (
+        <div className="absolute inset-x-0 top-0 z-20 bg-sky-500/90 py-1 text-center text-xs font-semibold text-sky-950">
+          Esperando al anfitrión… tu puntaje está a salvo
         </div>
       )}
 

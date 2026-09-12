@@ -1,15 +1,23 @@
 /**
  * gateway.ts — Capa delgada entre Socket.IO y la maquina de estados.
  *
- * Aqui NO hay reglas del juego: solo traduccion de eventos a llamadas de
- * `Room`, difusion del estado y los timers que la sala no puede tener porque
- * es pura. Todo lo que decide algo vive en room.ts / scoring.ts.
+ * Aqui NO hay reglas del juego: traduccion de eventos a llamadas de `Room`,
+ * difusion del estado, timers, y todo el endurecimiento (clave de anfitrion,
+ * limites por IP, validacion de payloads, caps y recoleccion de salas).
+ * Lo que decide algo vive en room.ts / scoring.ts.
  */
 
 import type { Server, Socket } from 'socket.io';
 import {
   generateUniqueCode,
   normalizeCode,
+  validateAnswer,
+  validateCreateSession,
+  validateHostRecover,
+  validateJoin,
+  validateKick,
+  validatePing,
+  validateResume,
   type ClientToServerEvents,
   type LeaderboardRow,
   type PlayerErrorCode,
@@ -17,27 +25,27 @@ import {
   type ServerToClientEvents,
 } from '@ingconoc/shared';
 import { ANSWER_GRACE_MS, Room } from './room.ts';
+import type { Config } from './config.ts';
+import { clientIp, IpRateLimiter, type Action } from './ratelimit.ts';
+import {
+  deleteSnapshot,
+  loadSnapshots,
+  saveSnapshot,
+  writeResults,
+  type Paths,
+} from './persistence.ts';
 
 type IOServer = Server<ClientToServerEvents, ServerToClientEvents>;
 type IOSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
-/** Lo que el gateway cuelga de cada socket. */
 type SocketData = {
   role: 'host' | 'player' | null;
   code: string | null;
   playerId: string | null;
-  /** Token bucket contra clientes que inundan. */
-  budget: number;
-  budgetAt: number;
+  ip: string;
 };
 
-const ROOM_TTL_MS = 4 * 60 * 60 * 1000; // 4 h
-const EMPTY_ROOM_TTL_MS = 30 * 60 * 1000; // 30 min sin nadie conectado
 const SWEEP_EVERY_MS = 60_000;
-
-/** ~20 eventos/s sostenidos por socket; de sobra para jugar. */
-const RATE_BUDGET = 40;
-const RATE_REFILL_PER_SEC = 20;
 
 export function log(event: string, detail: Record<string, unknown> = {}): void {
   const line = Object.entries(detail)
@@ -50,19 +58,28 @@ export class Gateway {
   private readonly byCode = new Map<string, Room>();
   private readonly bySession = new Map<string, Room>();
   private readonly timers = new Map<string, NodeJS.Timeout>();
-  private readonly lastSeen = new Map<string, number>();
   private sweeper: NodeJS.Timeout | null = null;
 
   private readonly io: IOServer;
   private readonly quizzes: Map<string, Quiz>;
-  private readonly publicWebUrl: string | null;
+  private readonly config: Config;
+  private readonly paths: Paths | null;
+  readonly limiter: IpRateLimiter;
 
   // Campos explicitos, no parameter properties: Node ejecuta este TS quitando
   // tipos y las parameter properties necesitan generar codigo.
-  constructor(io: IOServer, quizzes: Map<string, Quiz>, publicWebUrl: string | null = null) {
+  constructor(
+    io: IOServer,
+    quizzes: Map<string, Quiz>,
+    config: Config,
+    paths: Paths | null = null,
+    limiter: IpRateLimiter = new IpRateLimiter(),
+  ) {
     this.io = io;
     this.quizzes = quizzes;
-    this.publicWebUrl = publicWebUrl;
+    this.config = config;
+    this.paths = paths;
+    this.limiter = limiter;
   }
 
   attach(): void {
@@ -81,6 +98,46 @@ export class Gateway {
     return this.byCode.size;
   }
 
+  get playerCount(): number {
+    let n = 0;
+    for (const room of this.byCode.values()) n += room.players.size;
+    return n;
+  }
+
+  roomByCode(code: string): Room | undefined {
+    return this.byCode.get(code);
+  }
+
+  /** Recarga las salas del disco al arrancar. */
+  restoreFromDisk(now: number = Date.now()): void {
+    if (!this.paths) return;
+    const report = loadSnapshots(this.paths, this.quizzes, {
+      ttlMs: this.config.roomTtlMs,
+      maxPlayers: this.config.maxPlayersPerRoom,
+      now,
+      log: (e, d) => log(e, d),
+    });
+    for (const room of report.restored) {
+      if (this.byCode.size >= this.config.maxRooms) {
+        log('snapshot:descartado', { code: room.code, reason: 'cap de salas' });
+        continue;
+      }
+      this.byCode.set(room.code, room);
+      this.bySession.set(room.sessionId, room);
+      // Si volvio en QUESTION_ACTIVE con deadline vivo, hay que rearmar el timer.
+      this.armTimer(room);
+      log('snapshot:restaurado', {
+        code: room.code,
+        phase: room.phase,
+        jugadores: room.players.size,
+        q: room.questionIndex,
+      });
+    }
+    for (const d of report.discarded) {
+      log('snapshot:descartado', { file: d.file, reason: d.reason });
+    }
+  }
+
   // --- Utilidades de socket ------------------------------------------------
 
   private data(socket: IOSocket): SocketData {
@@ -90,23 +147,18 @@ export class Gateway {
         role: null,
         code: null,
         playerId: null,
-        budget: RATE_BUDGET,
-        budgetAt: Date.now(),
+        ip: clientIp(socket.handshake, this.config.trustProxy),
       } satisfies SocketData);
     }
     return socket.data as SocketData;
   }
 
-  /** Token bucket. Devuelve false si el socket se paso de vueltas. */
-  private allow(socket: IOSocket): boolean {
-    const d = this.data(socket);
-    const now = Date.now();
-    const refill = ((now - d.budgetAt) / 1000) * RATE_REFILL_PER_SEC;
-    d.budget = Math.min(RATE_BUDGET, d.budget + refill);
-    d.budgetAt = now;
-    if (d.budget < 1) return false;
-    d.budget -= 1;
-    return true;
+  /** Limite POR IP. El del Paso 2 se evadia abriendo mas sockets. */
+  private allow(socket: IOSocket, action: Action): boolean {
+    const ip = this.data(socket).ip;
+    const ok = this.limiter.take(ip, action);
+    if (!ok) log('ratelimit', { ip, action });
+    return ok;
   }
 
   private roomOf(socket: IOSocket): Room | null {
@@ -118,15 +170,37 @@ export class Gateway {
     socket.emit('player:error', { code, message });
   }
 
+  private persist(room: Room): void {
+    if (!this.paths || !this.config.snapshotEnabled) return;
+    try {
+      saveSnapshot(this.paths, room, Date.now());
+    } catch (err) {
+      // Un disco lleno no puede tumbar la partida en curso.
+      log('snapshot:error', { code: room.code, err: (err as Error).message });
+    }
+  }
+
+  private exportResults(room: Room): void {
+    if (!this.paths) return;
+    try {
+      writeResults(this.paths, room);
+    } catch (err) {
+      log('resultados:error', { code: room.code, err: (err as Error).message });
+    }
+  }
+
   // --- Ciclo de vida de la sala -------------------------------------------
 
-  private createRoom(quiz: Quiz): Room {
+  private createRoom(quiz: Quiz): Room | null {
+    if (this.byCode.size >= this.config.maxRooms) return null;
     const code = generateUniqueCode((c) => this.byCode.has(c));
-    const room = new Room(quiz, code, Date.now(), (event, detail) => log(event, detail));
+    const room = new Room(quiz, code, Date.now(), (event, detail) => log(event, detail), {
+      maxPlayers: this.config.maxPlayersPerRoom,
+    });
     this.byCode.set(code, room);
     this.bySession.set(room.sessionId, room);
-    this.lastSeen.set(code, Date.now());
-    log('room:created', { code, quiz: quiz.id });
+    log('room:created', { code, quiz: quiz.id, salasVivas: this.byCode.size });
+    this.persist(room);
     return room;
   }
 
@@ -134,22 +208,45 @@ export class Gateway {
     this.clearTimer(room);
     this.byCode.delete(room.code);
     this.bySession.delete(room.sessionId);
-    this.lastSeen.delete(room.code);
-    log('room:destroyed', { code: room.code, reason });
+    if (this.paths) {
+      try {
+        deleteSnapshot(this.paths, room.code);
+      } catch {
+        /* el GC del disco no puede tumbar el proceso */
+      }
+    }
+    log('room:destroyed', {
+      code: room.code,
+      reason,
+      jugadores: room.players.size,
+      fase: room.phase,
+    });
   }
 
-  /** Recoge salas abandonadas. Sin esto, un servidor de 8 h se llena de basura. */
-  private sweep(now: number): void {
+  /**
+   * GC. Sin esto un servidor de 8 h se llena de salas muertas. Dos reglas:
+   * TTL absoluto, y salas en LOBBY que nadie tocó (alguien abre /host, ve el
+   * código y se va).
+   */
+  sweep(now: number): void {
     for (const room of [...this.byCode.values()]) {
       const anyoneConnected =
         room.hostSocketId !== null || [...room.players.values()].some((p) => p.connected);
-      if (anyoneConnected) {
-        this.lastSeen.set(room.code, now);
+      if (anyoneConnected) room.touch(now);
+
+      if (now - room.createdAt > this.config.roomTtlMs) {
+        this.destroyRoom(room, `TTL de ${Math.round(this.config.roomTtlMs / 60_000)} min`);
         continue;
       }
-      const idleSince = this.lastSeen.get(room.code) ?? room.createdAt;
-      if (now - room.createdAt > ROOM_TTL_MS || now - idleSince > EMPTY_ROOM_TTL_MS) {
-        this.destroyRoom(room, 'abandonada');
+      if (
+        room.phase === 'LOBBY' &&
+        !anyoneConnected &&
+        now - room.lastActivityAt > this.config.lobbyIdleTtlMs
+      ) {
+        this.destroyRoom(
+          room,
+          `LOBBY inactivo ${Math.round(this.config.lobbyIdleTtlMs / 60_000)} min`,
+        );
       }
     }
   }
@@ -165,9 +262,8 @@ export class Gateway {
   }
 
   /**
-   * Cierra la pregunta sola cuando vence el deadline MAS la gracia, para que
-   * las respuestas que salieron a tiempo pero llegaron tarde alcancen a entrar
-   * en la distribucion que ve el host.
+   * Cierra la pregunta sola en deadline + gracia, para que las respuestas que
+   * salieron a tiempo pero llegaron tarde entren en la distribucion.
    */
   private armTimer(room: Room): void {
     this.clearTimer(room);
@@ -176,15 +272,33 @@ export class Gateway {
     const t = setTimeout(() => {
       this.timers.delete(room.code);
       if (room.phase !== 'QUESTION_ACTIVE') return;
-      const r = room.closeQuestion(Date.now());
-      if (r.ok) {
+      if (room.closeQuestion(Date.now()).ok) {
         log('question:auto-closed', { code: room.code, q: room.questionIndex });
-        this.broadcastState(room);
-        this.emitReveal(room);
+        this.afterTransition(room);
       }
     }, delay);
     t.unref?.();
     this.timers.set(room.code, t);
+  }
+
+  /**
+   * Todo lo que hay que hacer despues de mover la maquina de estados:
+   * difundir, exportar si toca y persistir. Un solo sitio para no olvidarse.
+   */
+  private afterTransition(room: Room): void {
+    room.touch(Date.now());
+    this.broadcastState(room);
+    if (room.phase === 'REVEAL') {
+      this.emitReveal(room);
+      // Se reescriben en cada reveal: si la clase se corta en la pregunta 3,
+      // queda el material de las 3 primeras.
+      this.exportResults(room);
+    }
+    if (room.phase === 'FINAL') {
+      this.emitFinal(room);
+      this.exportResults(room);
+    }
+    this.persist(room);
   }
 
   // --- Difusion ------------------------------------------------------------
@@ -205,7 +319,6 @@ export class Gateway {
     });
   }
 
-  /** Estado a todos: el host ve el agregado, cada jugador ve el suyo. */
   private broadcastState(room: Room): void {
     this.hostSocket(room)?.emit('host:questionState', {
       phase: room.phase,
@@ -230,14 +343,13 @@ export class Gateway {
 
     socket.emit('player:state', {
       phase: room.phase,
-      // El enunciado va en la pantalla grande; al celular solo le hace falta
-      // la pregunta para pintar las 4 opciones del juego.
       ...(question ? { question } : {}),
       ...(room.deadlineAt !== null ? { deadlineAt: room.deadlineAt } : {}),
       myScore: player.score,
       myRank: room.rankOf(playerId),
       answered: room.hasAnsweredCurrent(playerId),
       totalPlayers: room.players.size,
+      hostConnected: room.hostSocketId !== null,
       ...(room.phase === 'REVEAL' || room.phase === 'DISCUSSION'
         ? lastResult
           ? { lastResult }
@@ -260,7 +372,6 @@ export class Gateway {
       leaderboard: room.leaderboard().slice(0, 5),
     });
 
-    // A cada jugador, su resultado. Quien no respondio recibe 0 y racha rota.
     for (const player of room.players.values()) {
       if (!player.socketId) continue;
       const socket = this.io.sockets.sockets.get(player.socketId) as IOSocket | undefined;
@@ -286,6 +397,45 @@ export class Gateway {
     });
   }
 
+  private sessionPayload(room: Room, socket: IOSocket) {
+    const base =
+      this.config.publicUrl ?? (socket.handshake.headers.origin as string | undefined) ?? '';
+    return {
+      sessionId: room.sessionId,
+      code: room.code,
+      joinUrl: `${base}/?c=${room.code}`,
+      // Token de reconexion silenciosa de ESTE navegador.
+      token: room.sessionId,
+      // Clave de recuperacion desde otro dispositivo.
+      hostToken: room.hostToken,
+      quizTitle: room.quiz.title,
+      totalQuestions: room.totalQuestions,
+    };
+  }
+
+  /** Deja a este socket como anfitrion de la sala y le manda todo el estado. */
+  private attachHost(socket: IOSocket, room: Room): void {
+    const previous = this.hostSocket(room);
+    if (previous && previous.id !== socket.id) {
+      // Reclamada desde otro dispositivo: el anterior deja de mandar.
+      previous.emit('host:error', {
+        code: 'TAKEN_OVER',
+        message: 'Otro dispositivo reclamó esta sala',
+      });
+    }
+    room.hostSocketId = socket.id;
+    const d = this.data(socket);
+    d.role = 'host';
+    d.code = room.code;
+    room.touch(Date.now());
+
+    socket.emit('host:sessionCreated', this.sessionPayload(room, socket));
+    this.emitRoster(room);
+    this.broadcastState(room);
+    if (room.phase === 'REVEAL') this.emitReveal(room);
+    if (room.phase === 'FINAL') this.emitFinal(room);
+  }
+
   // --- Conexiones ----------------------------------------------------------
 
   private onConnection(socket: IOSocket): void {
@@ -293,133 +443,146 @@ export class Gateway {
 
     // ---------------- Host ----------------
 
-    socket.on('host:createSession', ({ quizId }) => {
-      if (!this.allow(socket)) return;
-      const quiz = this.quizzes.get(quizId) ?? [...this.quizzes.values()][0];
+    socket.on('host:createSession', (payload) => {
+      if (!this.allow(socket, 'create')) {
+        socket.emit('host:error', { code: 'RATE_LIMITED', message: 'Demasiados intentos' });
+        return;
+      }
+      const v = validateCreateSession(payload);
+      if (!v.ok) {
+        socket.emit('host:error', { code: 'BAD_PAYLOAD', message: `Campo inválido: ${v.field}` });
+        return;
+      }
+      // La clave del anfitrion es lo que impide que cualquiera cree salas en
+      // bucle hasta llenar la memoria. Sin ella no hay sesion.
+      if (payload.hostKey !== this.config.hostKey) {
+        log('host:key-rechazada', { ip: this.data(socket).ip });
+        socket.emit('host:error', { code: 'BAD_HOST_KEY', message: 'Clave de anfitrión inválida' });
+        return;
+      }
+      const quiz = this.quizzes.get(payload.quizId) ?? [...this.quizzes.values()][0];
       if (!quiz) {
         socket.emit('host:error', { code: 'NO_QUIZ', message: 'No hay cuestionarios cargados' });
         return;
       }
       const room = this.createRoom(quiz);
-      room.hostSocketId = socket.id;
-      const d = this.data(socket);
-      d.role = 'host';
-      d.code = room.code;
-
-      const base = this.publicWebUrl ?? (socket.handshake.headers.origin as string) ?? '';
-      socket.emit('host:sessionCreated', {
-        sessionId: room.sessionId,
-        code: room.code,
-        joinUrl: `${base}/?c=${room.code}`,
-        token: room.hostToken,
-        quizTitle: room.quiz.title,
-        totalQuestions: room.totalQuestions,
-      });
-      this.emitRoster(room);
-      this.broadcastState(room);
+      if (!room) {
+        socket.emit('host:error', {
+          code: 'TOO_MANY_ROOMS',
+          message: `Ya hay ${this.config.maxRooms} salas vivas en este servidor`,
+        });
+        return;
+      }
+      this.attachHost(socket, room);
     });
 
-    socket.on('host:resume', ({ sessionId, token }) => {
-      if (!this.allow(socket)) return;
-      const room = this.bySession.get(sessionId);
-      if (!room || room.hostToken !== token) {
+    socket.on('host:resume', (payload) => {
+      if (!this.allow(socket, 'other')) return;
+      if (typeof payload?.sessionId !== 'string' || payload.sessionId.length > 64) {
+        socket.emit('host:error', { code: 'BAD_PAYLOAD', message: 'sessionId inválido' });
+        return;
+      }
+      const room = this.bySession.get(payload.sessionId);
+      if (!room || payload.token !== room.sessionId) {
         socket.emit('host:error', { code: 'RESUME_FAILED', message: 'Sesión no encontrada' });
         return;
       }
-      room.hostSocketId = socket.id;
-      const d = this.data(socket);
-      d.role = 'host';
-      d.code = room.code;
-      const base = this.publicWebUrl ?? (socket.handshake.headers.origin as string) ?? '';
-      socket.emit('host:sessionCreated', {
-        sessionId: room.sessionId,
-        code: room.code,
-        joinUrl: `${base}/?c=${room.code}`,
-        token: room.hostToken,
-        quizTitle: room.quiz.title,
-        totalQuestions: room.totalQuestions,
-      });
-      this.emitRoster(room);
-      this.broadcastState(room);
-      if (room.phase === 'REVEAL') this.emitReveal(room);
-      if (room.phase === 'FINAL') this.emitFinal(room);
+      this.attachHost(socket, room);
       log('host:resumed', { code: room.code });
     });
 
+    /** Reclamar la sala desde otro dispositivo. Requiere código + clave. */
+    socket.on('host:recover', (payload) => {
+      if (!this.allow(socket, 'recover')) {
+        socket.emit('host:error', { code: 'RATE_LIMITED', message: 'Demasiados intentos' });
+        return;
+      }
+      const v = validateHostRecover(payload);
+      if (!v.ok) {
+        socket.emit('host:error', { code: 'BAD_PAYLOAD', message: `Campo inválido: ${v.field}` });
+        return;
+      }
+      const room = this.byCode.get(normalizeCode(payload.code));
+      const token = normalizeCode(payload.hostToken);
+      if (!room || room.hostToken !== token) {
+        // Mismo mensaje para sala inexistente y clave mala: no se filtra si el
+        // código existe.
+        log('host:recover-fallido', { ip: this.data(socket).ip });
+        socket.emit('host:error', {
+          code: 'RECOVER_FAILED',
+          message: 'Código o clave de recuperación incorrectos',
+        });
+        return;
+      }
+      this.attachHost(socket, room);
+      log('host:recovered', { code: room.code, ip: this.data(socket).ip });
+    });
+
     const hostAction = (action: (room: Room) => void) => () => {
-      if (!this.allow(socket)) return;
+      if (!this.allow(socket, 'other')) return;
       const room = this.roomOf(socket);
       if (!room || this.data(socket).role !== 'host') return;
-      if (room.hostSocketId !== socket.id) return; // solo el host manda
+      if (room.hostSocketId !== socket.id) return; // solo el anfitrión actual manda
       action(room);
     };
 
     socket.on(
       'host:startGame',
       hostAction((room) => {
-        const r = room.startGame(Date.now());
-        if (!r.ok) return;
+        if (!room.startGame(Date.now()).ok) return;
         this.armTimer(room);
-        this.broadcastState(room);
+        this.afterTransition(room);
       }),
     );
 
     socket.on(
       'host:closeQuestion',
       hostAction((room) => {
-        const r = room.closeQuestion(Date.now());
-        if (!r.ok) return;
+        if (!room.closeQuestion(Date.now()).ok) return;
         this.clearTimer(room);
-        this.broadcastState(room);
-        this.emitReveal(room);
+        this.afterTransition(room);
       }),
     );
 
     socket.on(
       'host:reveal',
       hostAction((room) => {
-        const r = room.reveal(Date.now());
-        if (!r.ok) return;
+        if (!room.reveal(Date.now()).ok) return;
         this.clearTimer(room);
-        this.broadcastState(room);
-        this.emitReveal(room);
+        this.afterTransition(room);
       }),
     );
 
     socket.on(
       'host:nextQuestion',
       hostAction((room) => {
-        const r = room.nextQuestion(Date.now());
-        if (!r.ok) return;
+        if (!room.nextQuestion(Date.now()).ok) return;
         if (room.phase === 'QUESTION_ACTIVE') this.armTimer(room);
-        this.broadcastState(room);
-        if (room.phase === 'FINAL') this.emitFinal(room);
+        this.afterTransition(room);
       }),
     );
 
     socket.on(
       'host:endGame',
       hostAction((room) => {
-        const r = room.endGame();
-        if (!r.ok) return;
+        if (!room.endGame().ok) return;
         this.clearTimer(room);
-        this.broadcastState(room);
-        this.emitFinal(room);
+        this.afterTransition(room);
       }),
     );
 
-    socket.on('host:kickPlayer', ({ playerId }) => {
-      if (!this.allow(socket)) return;
+    socket.on('host:kickPlayer', (payload) => {
+      if (!this.allow(socket, 'other')) return;
+      if (!validateKick(payload).ok) return;
       const room = this.roomOf(socket);
       if (!room || this.data(socket).role !== 'host' || room.hostSocketId !== socket.id) return;
-      const player = room.players.get(playerId);
-      const r = room.kickPlayer(playerId);
-      if (!r.ok) return;
+      const player = room.players.get(payload.playerId);
+      if (!room.kickPlayer(payload.playerId).ok) return;
       if (player?.socketId) {
         const s = this.io.sockets.sockets.get(player.socketId) as IOSocket | undefined;
         s?.emit('player:kicked');
-        const sd = s ? this.data(s) : null;
-        if (sd) {
+        if (s) {
+          const sd = this.data(s);
           sd.code = null;
           sd.playerId = null;
           sd.role = null;
@@ -427,19 +590,27 @@ export class Gateway {
       }
       this.emitRoster(room);
       this.emitProgress(room);
-      this.broadcastState(room);
+      this.afterTransition(room);
     });
 
     // ---------------- Jugador ----------------
 
-    socket.on('player:join', ({ code, nickname }) => {
-      if (!this.allow(socket)) return;
-      const room = this.byCode.get(normalizeCode(code ?? ''));
+    socket.on('player:join', (payload) => {
+      if (!this.allow(socket, 'join')) {
+        this.playerError(socket, 'RATE_LIMITED', 'Demasiados intentos, espera unos segundos');
+        return;
+      }
+      const v = validateJoin(payload);
+      if (!v.ok) {
+        this.playerError(socket, 'BAD_NICKNAME', `Campo inválido: ${v.field}`);
+        return;
+      }
+      const room = this.byCode.get(normalizeCode(payload.code));
       if (!room) {
         this.playerError(socket, 'ROOM_NOT_FOUND', 'No existe esa sala');
         return;
       }
-      const r = room.addPlayer(nickname ?? '', Date.now());
+      const r = room.addPlayer(payload.nickname, Date.now());
       if (!r.ok) {
         this.playerError(socket, r.code as PlayerErrorCode, r.message);
         return;
@@ -449,6 +620,7 @@ export class Gateway {
       d.code = room.code;
       d.playerId = r.player.id;
       room.setConnected(r.player.id, true, socket.id);
+      room.touch(Date.now());
 
       socket.emit('player:joined', {
         sessionId: room.sessionId,
@@ -459,16 +631,25 @@ export class Gateway {
       this.emitPlayerState(room, r.player.id);
       this.emitRoster(room);
       this.emitProgress(room);
+      this.persist(room);
     });
 
-    socket.on('player:resume', ({ sessionId, playerId, token }) => {
-      if (!this.allow(socket)) return;
-      const room = this.bySession.get(sessionId);
+    socket.on('player:resume', (payload) => {
+      if (!this.allow(socket, 'join')) {
+        this.playerError(socket, 'RATE_LIMITED', 'Demasiados intentos');
+        return;
+      }
+      const v = validateResume(payload);
+      if (!v.ok) {
+        this.playerError(socket, 'RESUME_FAILED', `Campo inválido: ${v.field}`);
+        return;
+      }
+      const room = this.bySession.get(payload.sessionId);
       if (!room) {
         this.playerError(socket, 'ROOM_NOT_FOUND', 'Esa partida ya terminó');
         return;
       }
-      const r = room.resumePlayer(playerId, token);
+      const r = room.resumePlayer(payload.playerId, payload.token);
       if (!r.ok) {
         this.playerError(socket, 'RESUME_FAILED', r.message);
         return;
@@ -476,8 +657,8 @@ export class Gateway {
       const d = this.data(socket);
       d.role = 'player';
       d.code = room.code;
-      d.playerId = playerId;
-      room.setConnected(playerId, true, socket.id);
+      d.playerId = payload.playerId;
+      room.setConnected(payload.playerId, true, socket.id);
 
       socket.emit('player:joined', {
         sessionId: room.sessionId,
@@ -485,15 +666,17 @@ export class Gateway {
         token: r.player.token,
         nickname: r.player.nickname,
       });
-      // Estado COMPLETO: fase, pregunta, deadline, puntaje, puesto y si ya
-      // respondio. Con esto el cliente se repinta exactamente donde estaba.
-      this.emitPlayerState(room, playerId);
+      this.emitPlayerState(room, payload.playerId);
       this.emitRoster(room);
     });
 
     socket.on('player:answer', (payload) => {
-      if (!this.allow(socket)) {
+      if (!this.allow(socket, 'answer')) {
         this.playerError(socket, 'RATE_LIMITED', 'Demasiados eventos');
+        return;
+      }
+      if (!validateAnswer(payload).ok) {
+        this.playerError(socket, 'WRONG_QUESTION', 'Respuesta mal formada');
         return;
       }
       const room = this.roomOf(socket);
@@ -502,37 +685,34 @@ export class Gateway {
         this.playerError(socket, 'NOT_IN_ROOM', 'No estás en una sala');
         return;
       }
-      // El reloj es el del SERVIDOR. El cliente no manda tiempo.
       const r = room.submitAnswer(playerId, payload, Date.now());
       if (!r.ok) {
         this.playerError(socket, r.code as PlayerErrorCode, r.message);
         return;
       }
-      // NO se manda player:result aqui: revelaria si acerto antes que al
-      // resto de la clase. Solo el acuse con el tiempo del servidor.
+      // Acuse SIN correctitud: el alumno se entera en el reveal, con la clase.
       socket.emit('player:answerAccepted', {
         questionId: r.record.questionId,
         elapsedMs: r.record.elapsedMs,
       });
+      room.touch(Date.now());
       this.emitProgress(room);
       this.emitPlayerState(room, playerId);
+      this.persist(room);
 
-      // Si ya respondieron todos, no tiene sentido esperar al reloj.
       if (room.answeredCount() >= room.players.size && room.players.size > 0) {
-        const closed = room.closeQuestion(Date.now());
-        if (closed.ok) {
+        if (room.closeQuestion(Date.now()).ok) {
           this.clearTimer(room);
           log('question:all-answered', { code: room.code, q: room.questionIndex });
-          this.broadcastState(room);
-          this.emitReveal(room);
+          this.afterTransition(room);
         }
       }
     });
 
-    socket.on('player:ping', ({ t0 }) => {
-      // El ping no consume presupuesto completo: son 3 al entrar y alguno mas.
-      if (!this.allow(socket)) return;
-      socket.emit('player:pong', { t0, tServer: Date.now() });
+    socket.on('player:ping', (payload) => {
+      if (!this.allow(socket, 'ping')) return;
+      if (!validatePing(payload).ok) return;
+      socket.emit('player:pong', { t0: payload.t0, tServer: Date.now() });
     });
 
     socket.on('disconnect', (reason) => {
@@ -542,10 +722,11 @@ export class Gateway {
       if (d.role === 'host' && room.hostSocketId === socket.id) {
         room.hostSocketId = null;
         log('host:disconnected', { code: room.code, reason });
+        // La sala sigue viva. Los jugadores ven "esperando al anfitrión".
+        this.broadcastState(room);
         return;
       }
       if (d.role === 'player' && d.playerId) {
-        // NO se borra al jugador: conserva puntaje y puede reconectar.
         room.setConnected(d.playerId, false, null);
         log('player:disconnected', { code: room.code, playerId: d.playerId, reason });
         this.emitRoster(room);

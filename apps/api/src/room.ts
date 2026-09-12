@@ -14,6 +14,7 @@
 
 import {
   correctOptionId,
+  generateHostToken,
   dedupeNickname,
   isValidNickname,
   sanitizeNickname,
@@ -73,6 +74,15 @@ export type Result<T> = Ok<T> | Fail;
 
 export type RoomLogger = (event: string, detail: Record<string, unknown>) => void;
 
+export type RoomOptions = {
+  /** Cap de jugadores. Viene de config; MAX_PLAYERS es solo el defecto. */
+  maxPlayers?: number;
+  /** Solo al restaurar desde snapshot: conserva la identidad de la sala. */
+  sessionId?: string;
+  hostToken?: string;
+  createdAt?: number;
+};
+
 const noopLogger: RoomLogger = () => {};
 
 /** Ids opacos. `crypto` es global en Node 18+ y en el navegador. */
@@ -96,15 +106,32 @@ export class Room {
   hostSocketId: string | null = null;
 
   readonly players = new Map<PlayerId, Player>();
+  readonly maxPlayers: number;
   private readonly log: RoomLogger;
+  /** Ultima vez que alguien hizo algo. Lo usa el GC del lobby. */
+  lastActivityAt: number;
 
-  constructor(quiz: Quiz, code: string, now: number, log: RoomLogger = noopLogger) {
-    this.sessionId = newId();
-    this.hostToken = newId();
+  constructor(
+    quiz: Quiz,
+    code: string,
+    now: number,
+    log: RoomLogger = noopLogger,
+    opts: RoomOptions = {},
+  ) {
+    this.sessionId = opts.sessionId ?? newId();
+    // Clave de recuperacion legible: se dicta y se teclea a mano.
+    this.hostToken = opts.hostToken ?? generateHostToken();
     this.quiz = quiz;
     this.code = code;
-    this.createdAt = now;
+    this.createdAt = opts.createdAt ?? now;
+    this.lastActivityAt = now;
+    this.maxPlayers = opts.maxPlayers ?? MAX_PLAYERS;
     this.log = log;
+  }
+
+  /** Marca actividad. El GC solo descarta salas realmente abandonadas. */
+  touch(now: number): void {
+    this.lastActivityAt = now;
   }
 
   // --- Consultas -----------------------------------------------------------
@@ -240,7 +267,7 @@ export class Room {
     if (this.phase !== 'LOBBY') {
       return this.reject('GAME_ALREADY_STARTED', 'La partida ya empezó', { rawNickname });
     }
-    if (this.players.size >= MAX_PLAYERS) {
+    if (this.players.size >= this.maxPlayers) {
       return this.reject('ROOM_FULL', 'La sala está llena', { size: this.players.size });
     }
     const clean = sanitizeNickname(rawNickname);
@@ -506,4 +533,137 @@ export class Room {
     this.log('rejected', { code, ...detail });
     return { ok: false, code, message };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot: sobrevivir a un reinicio del contenedor
+// ---------------------------------------------------------------------------
+
+/**
+ * Version del formato. Si cambia la forma del estado, los snapshots viejos se
+ * descartan en vez de reventar al arrancar.
+ */
+export const SNAPSHOT_VERSION = 1;
+
+export type RoomSnapshot = {
+  version: number;
+  savedAt: number;
+  sessionId: string;
+  code: string;
+  quizId: string;
+  hostToken: string;
+  createdAt: number;
+  lastActivityAt: number;
+  phase: Phase;
+  questionIndex: number;
+  deadlineAt: number | null;
+  questionStartedAt: number | null;
+  players: {
+    id: PlayerId;
+    token: string;
+    nickname: string;
+    score: number;
+    streak: number;
+    bestStreak: number;
+    joinedAt: number;
+    answers: AnswerRecord[];
+  }[];
+};
+
+/**
+ * Estado serializable. NO guarda sockets ni `connected`: al volver, todos
+ * reconectan de cero. Lo que importa conservar es puntaje, racha y respuestas.
+ */
+export function toSnapshot(room: Room, now: number): RoomSnapshot {
+  return {
+    version: SNAPSHOT_VERSION,
+    savedAt: now,
+    sessionId: room.sessionId,
+    code: room.code,
+    quizId: room.quiz.id,
+    hostToken: room.hostToken,
+    createdAt: room.createdAt,
+    lastActivityAt: room.lastActivityAt,
+    phase: room.phase,
+    questionIndex: room.questionIndex,
+    deadlineAt: room.deadlineAt,
+    questionStartedAt: room.questionStartedAt,
+    players: [...room.players.values()].map((p) => ({
+      id: p.id,
+      token: p.token,
+      nickname: p.nickname,
+      score: p.score,
+      streak: p.streak,
+      bestStreak: p.bestStreak,
+      joinedAt: p.joinedAt,
+      answers: [...p.answers.values()],
+    })),
+  };
+}
+
+export type RestoreResult =
+  | { ok: true; room: Room }
+  | { ok: false; reason: string };
+
+/**
+ * Reconstruye una sala. Devuelve el motivo en vez de lanzar: un snapshot
+ * corrupto no puede impedir que arranque el servidor con los demas.
+ */
+export function fromSnapshot(
+  snap: unknown,
+  quizzes: Map<string, Quiz>,
+  opts: { maxPlayers: number; log?: RoomLogger; now: number },
+): RestoreResult {
+  if (typeof snap !== 'object' || snap === null) return { ok: false, reason: 'no es un objeto' };
+  const s = snap as Partial<RoomSnapshot>;
+
+  if (s.version !== SNAPSHOT_VERSION) {
+    return { ok: false, reason: `versión ${String(s.version)} != ${SNAPSHOT_VERSION}` };
+  }
+  if (typeof s.code !== 'string' || typeof s.quizId !== 'string') {
+    return { ok: false, reason: 'faltan code o quizId' };
+  }
+  const quiz = quizzes.get(s.quizId);
+  if (!quiz) return { ok: false, reason: `el cuestionario "${s.quizId}" ya no existe` };
+  if (typeof s.questionIndex !== 'number' || s.questionIndex >= quiz.questions.length) {
+    return { ok: false, reason: 'el cuestionario cambió de tamaño' };
+  }
+
+  const room = new Room(quiz, s.code, opts.now, opts.log, {
+    maxPlayers: opts.maxPlayers,
+    ...(typeof s.sessionId === 'string' ? { sessionId: s.sessionId } : {}),
+    ...(typeof s.hostToken === 'string' ? { hostToken: s.hostToken } : {}),
+    ...(typeof s.createdAt === 'number' ? { createdAt: s.createdAt } : {}),
+  });
+
+  room.phase = s.phase ?? 'LOBBY';
+  room.questionIndex = s.questionIndex;
+  room.deadlineAt = s.deadlineAt ?? null;
+  room.questionStartedAt = s.questionStartedAt ?? null;
+  room.lastActivityAt = s.lastActivityAt ?? opts.now;
+
+  for (const p of s.players ?? []) {
+    room.players.set(p.id, {
+      id: p.id,
+      token: p.token,
+      nickname: p.nickname,
+      score: p.score,
+      streak: p.streak,
+      bestStreak: p.bestStreak,
+      // Nadie esta conectado tras un reinicio: todos vuelven por su cuenta.
+      connected: false,
+      socketId: null,
+      joinedAt: p.joinedAt,
+      answers: new Map(p.answers.map((a) => [a.questionId, a])),
+    });
+  }
+
+  // Si el proceso estuvo caido mientras corria una pregunta, el deadline ya
+  // pasó. Devolverla "activa" con 0 s daria una pregunta imposible: se cierra.
+  if (room.phase === 'QUESTION_ACTIVE' && (room.deadlineAt ?? 0) <= opts.now) {
+    room.phase = 'REVEAL';
+    room.deadlineAt = null;
+  }
+
+  return { ok: true, room };
 }

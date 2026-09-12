@@ -1,0 +1,70 @@
+# Dos servicios y nada mas: Caddy termina TLS, app hace todo lo demas.
+# Sin Postgres: las salas viven en memoria y se respaldan en /data.
+
+services:
+  app:
+    build: .
+    image: ingconoc-game:latest
+    restart: unless-stopped
+    environment:
+      # OBLIGATORIA. Sin ella el proceso no arranca. Ponla en .env.
+      HOST_KEY: ${HOST_KEY:?falta HOST_KEY, ponla en .env}
+      PORT: 3001
+      DATA_DIR: /data
+      WEB_DIST: /app/apps/web/dist
+      # Detras de Caddy: la IP real llega en X-Forwarded-For.
+      TRUST_PROXY: "1"
+      # Origen publico, para el joinUrl del QR.
+      PUBLIC_URL: https://${DOMAIN:?falta DOMAIN, ponlo en .env}
+      MAX_ROOMS: ${MAX_ROOMS:-3}
+      MAX_PLAYERS_PER_ROOM: ${MAX_PLAYERS_PER_ROOM:-60}
+      ROOM_TTL_MIN: ${ROOM_TTL_MIN:-240}
+      LOBBY_IDLE_TTL_MIN: ${LOBBY_IDLE_TTL_MIN:-30}
+    volumes:
+      # Snapshots de sala y resultados exportados. Sobrevive a docker compose up
+      # --build, que es justo el caso que importa.
+      - game-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3001/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    expose:
+      - "3001"
+    networks: [game]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      # QUIC/HTTP3. Si el puerto 443/udp esta ocupado, comenta esta linea.
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?falta DOMAIN, ponlo en .env}
+      # Let's Encrypt avisa a este correo si un certificado va a caducar.
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Los certificados NO se pueden perder entre reinicios: Let's Encrypt
+      # limita a 5 emisiones por dominio y semana.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [game]
+
+volumes:
+  game-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  game:

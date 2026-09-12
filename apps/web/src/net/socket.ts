@@ -26,6 +26,11 @@ export type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export function apiUrl(): string {
   const fromEnv = import.meta.env.VITE_API_URL as string | undefined;
   if (fromEnv) return fromEnv;
+  // En producción el mismo Express sirve la web Y Socket.IO: mismo origen, sin
+  // CORS, y WSS hereda el TLS de Caddy. Cadena vacía = origen actual.
+  if (!import.meta.env.DEV) return '';
+  // En dev Vite está en :5173 y el API en :3001. Se deriva del hostname y no de
+  // 'localhost', porque en el celular localhost sería el propio celular.
   const port = (import.meta.env.VITE_API_PORT as string | undefined) ?? '3001';
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
@@ -106,7 +111,13 @@ export type StoredPlayer = {
   nickname: string;
 };
 
-export type StoredHost = { sessionId: string; token: string };
+export type StoredHost = {
+  sessionId: string;
+  token: string;
+  /** Clave de recuperacion, para no volver a tipearla en este dispositivo. */
+  hostToken?: string;
+  code?: string;
+};
 
 export const playerStore = {
   get: () => read<StoredPlayer>(PLAYER_KEY),
@@ -118,6 +129,31 @@ export const hostStore = {
   get: () => read<StoredHost>(HOST_KEY),
   set: (v: StoredHost) => write(HOST_KEY, v),
   clear: () => clear(HOST_KEY),
+};
+
+/**
+ * Clave de anfitrion (HOST_KEY del servidor). Se guarda aparte de la sesion:
+ * sobrevive a terminar una partida y empezar otra.
+ */
+const HOST_AUTH_KEY = 'ingconoc:hostkey';
+
+export const hostKeyStore = {
+  // Se guarda en crudo, no como JSON: es una cadena y punto.
+  get: (): string => {
+    try {
+      return localStorage.getItem(HOST_AUTH_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  },
+  set: (v: string): void => {
+    try {
+      localStorage.setItem(HOST_AUTH_KEY, v);
+    } catch {
+      /* modo privado: habrá que tipearla cada vez */
+    }
+  },
+  clear: () => clear(HOST_AUTH_KEY),
 };
 
 export { ClientClock };

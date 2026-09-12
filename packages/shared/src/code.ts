@@ -10,6 +10,8 @@
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const CODE_LENGTH = 6;
 
+/** Longitud de la clave de recuperacion del host. Mismo alfabeto. */
+
 /** Caracteres prohibidos, por ambiguos. */
 export const CODE_BANNED = 'O0I1L';
 
@@ -52,4 +54,16 @@ export function isValidCode(code: string): boolean {
     if (!CODE_ALPHABET.includes(ch)) return false;
   }
   return true;
+}
+
+/**
+ * Clave de recuperacion del host: 6 caracteres del mismo alfabeto sin
+ * ambiguedades, porque se lee de una pantalla proyectada y se teclea a mano.
+ *
+ * 31^6 = 887 millones. Poca entropia para internet abierto, suficiente aqui
+ * porque para usarla hace falta ADEMAS el codigo de sala y el servidor limita
+ * los intentos de recuperacion por IP.
+ */
+export function generateHostToken(rand: () => number = Math.random): string {
+  return generateCode(rand);
 }
