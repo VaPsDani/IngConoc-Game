@@ -52,14 +52,26 @@ export function createSocket(): GameSocket {
  * Si alguna se pierde, el reloj queda con las muestras que haya: peor
  * precision, nunca un bloqueo.
  */
+export const PING_TIMEOUT_MS = 6000;
+/** Rondas extra para tolerar pings perdidos. */
+export const PING_MAX_ATTEMPTS = PING_ROUNDS + 3;
+
 export async function syncClock(socket: GameSocket, clock: ClientClock): Promise<void> {
-  for (let i = 0; i < PING_ROUNDS; i++) {
+  let got = 0;
+  // Se REINTENTA en vez de abandonar al primer ping perdido. En un WiFi con
+  // 20 % de pérdida, abandonar dejaba a uno de cada cinco celulares sin
+  // sincronizar y contando el tiempo con su propio reloj.
+  //
+  // El timeout es holgado (6 s) porque con 3 s de latencia un RTT normal ya
+  // pasa de los 3 s que había antes: cada ping se daba por perdido aunque
+  // llegara.
+  for (let i = 0; i < PING_MAX_ATTEMPTS && got < PING_ROUNDS; i++) {
     const t0 = Date.now();
     const ok = await new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => {
         socket.off('player:pong', onPong);
         resolve(false);
-      }, 3000);
+      }, PING_TIMEOUT_MS);
       const onPong = (p: { t0: number; tServer: number }) => {
         if (p.t0 !== t0) return;
         clearTimeout(timer);
@@ -70,7 +82,9 @@ export async function syncClock(socket: GameSocket, clock: ClientClock): Promise
       socket.on('player:pong', onPong);
       socket.emit('player:ping', { t0 });
     });
-    if (!ok) break;
+    if (ok) got++;
+    // Si el socket se cayó del todo, no hay nada que reintentar.
+    if (!ok && !socket.connected) break;
   }
 }
 
