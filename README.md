@@ -4,25 +4,38 @@ El enunciado va en el proyector; cada alumno responde desde su celular saltando
 con un sapo a uno de 4 nenúfares. El conocimiento decide **a dónde** saltas, la
 habilidad decide **qué tan rápido** llegas.
 
-Sin base de datos, sin despliegue, sin Docker. Salas en memoria.
+Sin base de datos. Salas en memoria, respaldadas en disco para sobrevivir a un
+reinicio. Docker + Caddy con TLS automático para el despliegue.
 
 ## Correr
 
+**En producción** — un solo origen, HTTPS automático con Caddy:
+
 ```bash
-pnpm install
-pnpm dev
+cp .env.example .env    # rellena HOST_KEY y DOMAIN
+docker compose up -d --build
 ```
 
-Levanta el API en `:3001` y la web en `:5173`, ambos escuchando en la LAN.
+Los pasos reales para la VM de OCI (firewall de dos capas, sslip.io, rollback) y
+el modo contingencia con hotspot están en **[DEPLOY.md](DEPLOY.md)**. Lo que hay
+que probar a mano en teléfonos de verdad antes de la clase, en
+**[PREFLIGHT.md](PREFLIGHT.md)**.
+
+**En desarrollo** — Vite en `:5173`, API en `:3001`:
+
+```bash
+pnpm install
+HOST_KEY=una-clave-de-al-menos-8 pnpm dev
+```
 
 - **Proyector:** `http://<tu-ip>:5173/host`
 - **Celulares:** `http://<tu-ip>:5173` (o el QR del lobby)
 
 ```bash
-pnpm test        # 98 tests
+pnpm test        # 138 tests
 pnpm typecheck   # los 3 paquetes
 pnpm build
-pnpm loadtest    # 40 clientes simulados (necesita el API arriba)
+HOST_KEY=... pnpm loadtest   # 40 clientes simulados (necesita el API arriba)
 ```
 
 Requiere **Node ≥ 22.18**: el API se ejecuta con `node src/main.ts`, sin bundler
@@ -228,11 +241,90 @@ Mejor no arrancar que revelar la respuesta equivocada delante de la clase.
 
 ---
 
-## Tests — 98
+# Parte 3 — Producción
+
+## Un solo origen
+
+Express sirve el build de `apps/web` **y** Socket.IO en el mismo puerto. Eso
+elimina CORS por completo, hace que WSS herede el TLS de Caddy, y deja una sola
+URL para el QR. Fallback SPA: `/host` y `/host/recover` devuelven `index.html`,
+así que recargar en cualquier ruta funciona.
+
+En dev sigue habiendo dos orígenes (Vite en `:5173`), y ahí sí se permite CORS.
+El cliente decide con `import.meta.env.DEV`.
+
+## Endurecimiento
+
+Los tres vectores que quedaron abiertos en el Paso 2, cerrados y con test:
+
+| Vector | Defensa | Test |
+|---|---|---|
+| Bucle de `host:createSession` hasta llenar la memoria | `HOST_KEY` obligatoria por entorno + cap de 3 salas por proceso | `hardening.test.ts` |
+| Rate limit evadible abriendo más sockets | Token bucket **por IP** y por acción | `hardening.test.ts` |
+| Payloads sin acotar | `maxHttpBufferSize: 8192` + validación de longitud y forma de cada campo | `hardening.test.ts` |
+
+Los cubos por IP están calibrados para que **40 alumnos detrás del mismo NAT**
+de la universidad quepan sin rozar el límite (`join` 120 de ráfaga, `answer` 120)
+mientras `create` y `recover` quedan en 5 — esos son de una sola persona.
+
+`X-Forwarded-For` solo se cree si `TRUST_PROXY=1`. Sin proxy de confianza la
+cabecera la escribe el atacante, y creerla sería regalar la evasión.
+
+Cabeceras de seguridad a mano (sin `helmet`): `X-Content-Type-Options`,
+`Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy` y una CSP que cierra
+`script-src` a `'self'`, que es por donde entraría un XSS.
+
+## Recuperación del host
+
+La clave de recuperación son 6 caracteres del mismo alfabeto sin ambigüedades.
+Se muestra **una sola vez en el lobby, en letra pequeña y tras un clic**: esa
+pantalla está proyectada delante de 40 personas.
+
+Con código + clave, `/host/recover` devuelve el control desde cualquier
+dispositivo. **La clave nunca va en la URL**: viaja en el cuerpo del evento, y
+la descarga de resultados usa POST por lo mismo — una URL con el token acabaría
+en el historial, en los logs de Caddy y en el `Referer`.
+
+Si el host se cae, la sala **sigue viva**: los jugadores ven "Esperando al
+anfitrión…", no un error, y nadie pierde puntaje.
+
+## Snapshots
+
+El estado de cada sala se escribe a `/data/sessions/<code>.json` en cada
+transición de la máquina de estados, de forma atómica (fichero temporal +
+rename). Al arrancar se recargan; los caducados, corruptos o de otra versión se
+descartan con su motivo en el log, sin impedir el arranque.
+
+Verificado en vivo: matando el proceso en seco a mitad de partida y
+rearrancándolo, la sala vuelve con sus 40 jugadores, puntajes y rachas.
+
+Una pregunta cuyo deadline venció durante la caída se reabre en `REVEAL`, no
+activa: devolverla con 0 s sería una pregunta imposible.
+
+## Exportación de resultados
+
+Al cerrar cada REVEAL se reescriben `/data/results/<code>.json` y `.csv`. Si la
+clase se corta en la pregunta 3, queda el material de las 3 primeras.
+
+El CSV lleva una fila por jugador y pregunta, **incluidas las no respondidas**
+(si solo salieran las respondidas, no se podría distinguir "falló" de "no
+llegó"). Lleva BOM para que Excel no destroce los acentos.
+
+El JSON añade el agregado por pregunta —distribución, porcentaje de acierto,
+mediana de tiempo y de intentos—, que es el material didáctico: dice qué tema
+falló la clase. Hay un ejemplo real de una partida de 40 en
+[`examples/`](examples/).
+
+Botones de descarga en la pantalla final del host.
+
+---
+
+## Tests — 138
 
 ```
 packages/shared   27   frontera pública/privada, validador, código, apodos, reloj
-apps/api          49   39 de la máquina de estados + 10 de integración por socket real
+apps/api          89   máquina de estados (39), integración por socket real (10),
+                       endurecimiento (24) y persistencia (16)
 apps/web          22   física del sapo (intactos desde el Paso 1)
 ```
 
@@ -254,12 +346,12 @@ semilla). 10 % nunca responde, 10 % responde pasada la gracia.
 ```
 conexiones exitosas       40/40
 entraron a la sala        40 (fallos: 0)
-respuestas enviadas       167
+respuestas enviadas       168
 respuestas aceptadas      160
-respuestas rechazadas     7   (ANSWER_TOO_LATE, los tardíos a propósito)
-latencia answer->ack      p50 1 ms · p95 2 ms · max 4 ms · n=160
-ping RTT                  p50 3 ms · p95 10 ms
-memoria servidor          rss 86.9 -> 88.1 MB · heap 16.4 -> 20.7 MB
+respuestas rechazadas     8   (ANSWER_TOO_LATE, los tardíos a propósito)
+latencia answer->ack      p50 1 ms · p95 3 ms · max 9 ms · n=160
+ping RTT                  p50 3 ms · p95 32 ms
+memoria servidor          rss 76.2 -> 86.4 MB · heap 15.9 -> 22.2 MB
 jugadores en la tabla     40
 ```
 

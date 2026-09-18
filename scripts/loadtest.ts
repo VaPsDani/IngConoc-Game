@@ -25,6 +25,8 @@ function arg(name: string, fallback: string): string {
 const URL = arg('url', 'http://127.0.0.1:3001');
 const PLAYERS = Number(arg('players', '40'));
 const QUIZ_ID = arg('quiz', 'ic-demo');
+/** Crear sala exige la clave del anfitrion desde el Paso 3. */
+const HOST_KEY = arg('host-key', process.env.HOST_KEY ?? '');
 /** Fraccion que NUNCA responde (se quedan mirando el celular). */
 const SILENT_RATIO = Number(arg('silent', '0.1'));
 /** Fraccion que responde DESPUES del deadline, para probar la gracia. */
@@ -106,7 +108,7 @@ type PlayerCtx = {
 };
 
 async function health(): Promise<Record<string, unknown>> {
-  const res = await fetch(`${URL}/health`);
+  const res = await fetch(`${URL}/healthz`);
   return (await res.json()) as Record<string, unknown>;
 }
 
@@ -121,7 +123,14 @@ async function main(): Promise<void> {
   await waitFor(host, 'connect', 10_000).catch(() => {
     throw new Error(`No se pudo conectar al servidor en ${URL}. ¿Está corriendo el API?`);
   });
-  host.emit('host:createSession', { quizId: QUIZ_ID });
+  host.emit('host:createSession', { quizId: QUIZ_ID, hostKey: HOST_KEY });
+  host.on('host:error', (e: { code: string; message: string }) => {
+    console.error(`host:error ${e.code}: ${e.message}`);
+    if (e.code === 'BAD_HOST_KEY') {
+      console.error('Pasa la clave con --host-key <clave> o HOST_KEY=<clave>.');
+      process.exit(1);
+    }
+  });
   const session = await waitFor<{ code: string; totalQuestions: number; quizTitle: string }>(
     host,
     'host:sessionCreated',
