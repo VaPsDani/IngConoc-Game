@@ -52,7 +52,8 @@ services:
     environment:
       DOMAIN: ${DOMAIN:?falta DOMAIN, ponlo en .env}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # :z reetiqueta para SELinux (Oracle Linux); en otros sistemas se ignora.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
       # Los certificados NO se pueden perder entre reinicios: Let's Encrypt
       # limita a 5 emisiones por dominio y semana.
       - caddy-data:/data
