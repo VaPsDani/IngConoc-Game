@@ -6,8 +6,6 @@
 #   DOMAIN=localhost                 -> certificado interno de Caddy (pruebas)
 
 {
-	# Si ACME_EMAIL esta vacio, Caddy usa una cuenta anonima igualmente.
-	email {$ACME_EMAIL}
 	# Descomenta para probar contra el staging de Let's Encrypt sin gastar
 	# el limite de 5 certificados por dominio y semana:
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory

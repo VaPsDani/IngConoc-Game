@@ -43,6 +43,10 @@ COPY --from=build --chown=node:node /app/apps/api/package.json ./apps/api/packag
 COPY --from=build --chown=node:node /app/packages/shared     ./packages/shared
 COPY --from=build --chown=node:node /app/apps/web/dist       ./apps/web/dist
 
+# Node no quita tipos de .ts bajo node_modules, y `pnpm deploy` copia ahi
+# @ingconoc/shared. Se reapunta el symlink al fuente fuera de node_modules.
+RUN ln -sfn /app/packages/shared node_modules/@ingconoc/shared
+
 # Volumen de datos: snapshots y resultados exportados.
 RUN mkdir -p /data && chown -R node:node /data
 

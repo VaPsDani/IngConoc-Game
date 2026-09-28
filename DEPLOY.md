@@ -124,7 +124,6 @@ head -c 32 /dev/urandom | base64
 ```ini
 HOST_KEY=<lo que salió arriba>
 DOMAIN=<ver A4>
-ACME_EMAIL=tu@correo.edu.pe
 ```
 
 ### A4. TLS sin dominio propio: sslip.io
@@ -396,7 +395,6 @@ New-NetFirewallRule -DisplayName "IngConoc Game" -Direction Inbound `
 | `ROOM_TTL_MIN` | No | `240` | TTL absoluto de una sala. |
 | `LOBBY_IDLE_TTL_MIN` | No | `30` | Un LOBBY sin actividad se descarta antes. |
 | `SNAPSHOT` | No | `1` | Escribir snapshots en cada transición. |
-| `ACME_EMAIL` | No | — | Let's Encrypt avisa aquí de caducidades. |
 
 ---
 
