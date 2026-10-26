@@ -392,8 +392,6 @@ describe('control del host', () => {
       await acks.waitFor((a) => a.questionId === `q${q}`);
       // Respondieron todos: la sala cierra la pregunta sola.
       await reveals.waitFor((r) => r.questionId === `q${q}`);
-      host.emit('host:nextQuestion'); // -> DISCUSSION
-      await sleep(60);
       host.emit('host:nextQuestion'); // -> siguiente | FINAL
       await sleep(60);
     }

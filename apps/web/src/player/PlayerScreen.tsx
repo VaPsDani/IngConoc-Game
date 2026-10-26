@@ -199,7 +199,7 @@ export default function PlayerScreen() {
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
             maxLength={NICKNAME_MAX}
-            placeholder="Dani"
+            placeholder="Nombre"
             className="mt-1 w-full rounded-xl bg-black/30 px-4 py-3 text-center text-lg outline-none ring-1 ring-white/15 focus:ring-emerald-400"
           />
 
@@ -382,7 +382,7 @@ function ResultScreen({
       <p className="mt-2 text-4xl font-black">
         {result.points > 0 ? `+${result.points}` : '0'}
       </p>
-      <dl className="mt-5 space-y-1 text-sm text-white/70">
+      <dl className="mt-5 space-y-2 text-xl text-white/80">
         <Row label="total" value={String(result.totalScore)} />
         <Row label="puesto" value={`#${result.rank}`} />
         <Row label="racha" value={result.streak > 0 ? `${result.streak} 🔥` : '—'} />
@@ -395,7 +395,7 @@ function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between">
       <dt>{label}</dt>
-      <dd className="font-mono">{value}</dd>
+      <dd className="font-mono text-2xl font-bold text-white">{value}</dd>
     </div>
   );
 }

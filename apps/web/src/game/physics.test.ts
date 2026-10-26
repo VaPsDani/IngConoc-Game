@@ -155,11 +155,11 @@ describe('equidad entre las 4 columnas', () => {
 });
 
 describe('ventana de power', () => {
-  it('coincide con el calculo analitico y mide ~21% del medidor', () => {
+  it('coincide con el calculo analitico y mide ~26% del medidor', () => {
     const w = powerWindow();
-    expect(w.min).toBeCloseTo(0.561512, 5);
+    expect(w.min).toBeCloseTo(0.512244, 5);
     expect(w.max).toBeCloseTo(0.768649, 5);
-    expect(w.width).toBeCloseTo(0.207137, 5);
+    expect(w.width).toBeCloseTo(0.256405, 5);
     // eslint-disable-next-line no-console
     console.log(
       `[ventana] power valido = [${w.min.toFixed(6)}, ${w.max.toFixed(6)}]  ` +

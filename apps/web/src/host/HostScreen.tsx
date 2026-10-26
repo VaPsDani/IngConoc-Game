@@ -566,7 +566,7 @@ function RevealView({
           onClick={onNext}
           className="flex-1 rounded-2xl bg-emerald-400 px-8 py-6 text-4xl font-black text-emerald-950"
         >
-          {phase === 'REVEAL' ? 'Discutir' : 'Siguiente'}
+          Siguiente
         </button>
         <button
           type="button"

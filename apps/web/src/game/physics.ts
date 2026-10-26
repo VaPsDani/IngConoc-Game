@@ -22,7 +22,7 @@ export const PHYSICS = Object.freeze({
   V_MIN: 900, // px/s con power = 0
   V_MAX: 1600, // px/s con power = 1
   CHARGE_PERIOD_MS: 900, // 0 -> 1, luego ping-pong
-  PLATFORM_TOP_DY: 380, // px sobre los pies del sapo
+  PLATFORM_TOP_DY: 360, // px sobre los pies del sapo
   BRANCH_DY: 470, // px sobre los pies del sapo
   PLATFORM_W: 78,
   RAIL_SLIDE_MS: 300,

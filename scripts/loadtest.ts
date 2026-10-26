@@ -290,9 +290,7 @@ async function main(): Promise<void> {
         ` aceptadas=${metrics.answersAccepted} rechazadas=${metrics.answersRejected}`,
     );
     await sleep(200);
-    host.emit('host:nextQuestion'); // REVEAL -> DISCUSSION
-    await sleep(200);
-    host.emit('host:nextQuestion'); // DISCUSSION -> siguiente | FINAL
+    host.emit('host:nextQuestion'); // REVEAL -> siguiente | FINAL
     await sleep(400);
   }
 

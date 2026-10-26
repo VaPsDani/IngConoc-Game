@@ -64,26 +64,30 @@ describe('maquina de estados', () => {
     expect(room.closeQuestion(T0 + 5000).ok).toBe(true);
     expect(room.phase).toBe('REVEAL');
 
-    expect(room.nextQuestion(T0 + 6000).ok).toBe(true);
-    expect(room.phase).toBe('DISCUSSION');
-    expect(room.deadlineAt).toBeNull();
-
+    // "Siguiente" desde la respuesta va directo a la próxima pregunta.
     expect(room.nextQuestion(T0 + 60_000).ok).toBe(true);
     expect(room.phase).toBe('QUESTION_ACTIVE');
     expect(room.questionIndex).toBe(1);
     expect(room.deadlineAt).toBe(T0 + 80_000);
   });
 
-  it('DISCUSSION no vence nunca: no tiene deadline', () => {
+  it('REVEAL no vence nunca: ahí se explica la respuesta', () => {
     room.addPlayer('Dani', T0);
     room.startGame(T0);
     room.closeQuestion(T0 + 1000);
-    room.nextQuestion(T0 + 2000);
-    expect(room.phase).toBe('DISCUSSION');
-    expect(room.deadlineAt).toBeNull();
-    // Diez minutos despues sigue igual: aqui es donde explico la pregunta.
+    expect(room.phase).toBe('REVEAL');
+    // Diez minutos despues sigue igual.
     expect(room.isExpired(T0 + 600_000)).toBe(false);
-    expect(room.phase).toBe('DISCUSSION');
+    expect(room.phase).toBe('REVEAL');
+  });
+
+  it('un DISCUSSION de un snapshot viejo también avanza', () => {
+    room.addPlayer('Dani', T0);
+    room.startGame(T0);
+    room.closeQuestion(T0 + 1000);
+    room.phase = 'DISCUSSION';
+    expect(room.nextQuestion(T0 + 2000).ok).toBe(true);
+    expect(room.questionIndex).toBe(1);
   });
 
   it('la ultima pregunta lleva a FINAL', () => {
@@ -91,8 +95,7 @@ describe('maquina de estados', () => {
     r.addPlayer('Dani', T0);
     r.startGame(T0);
     r.closeQuestion(T0 + 1000);
-    r.nextQuestion(T0 + 2000); // -> DISCUSSION
-    r.nextQuestion(T0 + 3000); // no quedan preguntas -> FINAL
+    r.nextQuestion(T0 + 2000); // no quedan preguntas -> FINAL
     expect(r.phase).toBe('FINAL');
     expect(r.deadlineAt).toBeNull();
   });
@@ -297,7 +300,6 @@ describe('respuestas y deadlines', () => {
     room.submitAnswer(pid, mkAnswer('q0', 'q0o1'), T0 + 1000);
     room.closeQuestion(T0 + 2000);
     room.nextQuestion(T0 + 2100);
-    room.nextQuestion(T0 + 2200);
     const r = room.submitAnswer(pid, mkAnswer('q1', 'q1o3'), T0 + 3000);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -375,9 +377,8 @@ describe('racha', () => {
       t += 1000;
       room.closeQuestion(t); // -> REVEAL
       t += 1000;
-      room.nextQuestion(t); // -> DISCUSSION
       t += 1000;
-      room.nextQuestion(t); // -> siguiente QUESTION_ACTIVE
+      room.nextQuestion(t); // -> siguiente pregunta
     }
     expect(streaks).toEqual([1, 2, 3, 4, 0, 1, 2]);
     expect(add.player.bestStreak).toBe(4);

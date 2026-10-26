@@ -429,12 +429,11 @@ export class Room {
    *   [deadline]     QUESTION_ACTIVE        -> REVEAL        (lo dispara el gateway)
    *   reveal         QUESTION_ACTIVE        -> REVEAL        (atajo, = closeQuestion)
    *                  REVEAL                 -> REVEAL        (idempotente, reenvia)
-   *   nextQuestion   REVEAL                 -> DISCUSSION
-   *                  DISCUSSION             -> QUESTION_ACTIVE(n+1) | FINAL
+   *   nextQuestion   REVEAL | DISCUSSION    -> QUESTION_ACTIVE(n+1) | FINAL
    *   endGame        cualquiera menos FINAL -> FINAL
    *
-   * Es decir: el host tiene un solo boton "siguiente" que avanza REVEAL ->
-   * DISCUSSION -> siguiente pregunta. DISCUSSION no tiene timeout.
+   * El host tiene un solo boton "Siguiente". REVEAL no tiene timeout: ahi se
+   * explica la respuesta todo lo que haga falta.
    */
 
   startGame(now: number): Result<{ phase: Phase }> {
@@ -463,13 +462,9 @@ export class Room {
   }
 
   nextQuestion(now: number): Result<{ phase: Phase }> {
-    if (this.phase === 'REVEAL') {
-      this.phase = 'DISCUSSION';
-      this.deadlineAt = null;
-      this.log('phase', { code: this.code, phase: this.phase, q: this.questionIndex });
-      return { ok: true, phase: this.phase };
-    }
-    if (this.phase === 'DISCUSSION') {
+    // REVEAL ya no pasa por DISCUSSION: se explica sobre la propia respuesta.
+    // DISCUSSION se acepta igual por si vuelve de un snapshot viejo.
+    if (this.phase === 'REVEAL' || this.phase === 'DISCUSSION') {
       if (this.questionIndex + 1 >= this.totalQuestions) {
         this.phase = 'FINAL';
         this.deadlineAt = null;

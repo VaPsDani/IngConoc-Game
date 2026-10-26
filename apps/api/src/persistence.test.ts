@@ -130,7 +130,6 @@ describe('round-trip de snapshot', () => {
     });
     const room = restored[0];
 
-    room.nextQuestion(T0 + 21_000); // -> DISCUSSION
     room.nextQuestion(T0 + 22_000); // -> pregunta 2
     expect(room.phase).toBe('QUESTION_ACTIVE');
     expect(room.questionIndex).toBe(1);
@@ -355,7 +354,6 @@ describe('exportación de resultados', () => {
     const room = partidaEnCurso(); // 3 preguntas en el quiz, 1 jugada
     expect(buildResults(room).perQuestion).toHaveLength(1);
     room.nextQuestion(T0 + 14_000);
-    room.nextQuestion(T0 + 15_000);
     expect(buildResults(room).perQuestion).toHaveLength(2);
   });
 });
