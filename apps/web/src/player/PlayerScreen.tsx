@@ -179,7 +179,7 @@ export default function PlayerScreen() {
     return (
       <Shell>
         <Card>
-          <h1 className="text-2xl font-bold">Salto del sapo</h1>
+          <h1 className="text-2xl font-bold">Ingeniería del Conocimiento</h1>
           <p className="mt-1 text-sm text-white/50">
             {connected ? 'Conectado' : 'Conectando…'}
           </p>
@@ -400,9 +400,9 @@ function ResultScreen({
         {result.points > 0 ? `+${result.points}` : '0'}
       </p>
       <dl className="mt-5 space-y-2 text-xl text-white/80">
-        <Row label="total" value={String(result.totalScore)} />
-        <Row label="puesto" value={`#${result.rank}`} />
-        <Row label="racha" value={result.streak > 0 ? `${result.streak} 🔥` : '—'} />
+        <Row label="Total" value={String(result.totalScore)} />
+        <Row label="Puesto" value={`#${result.rank}`} />
+        <Row label="Racha" value={result.streak > 0 ? `${result.streak} 🔥` : '—'} />
       </dl>
     </Card>
   );
