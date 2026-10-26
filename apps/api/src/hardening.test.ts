@@ -186,6 +186,42 @@ describe('caps duros', () => {
     expect(gateway.roomCount).toBe(3);
   });
 
+  it('con el cupo lleno recicla una sala terminada, nunca una en curso', async () => {
+    // Regresión: cada "Nueva sala" dejaba la anterior ocupando cupo 4 h, y a
+    // la tercera el host se quedaba para siempre en "Creando sala…".
+    const terminada = await createSession();
+    const enCurso = await createSession();
+    await createSession();
+    for (const s of [terminada, enCurso]) {
+      const p = connect();
+      await once(p, 'connect');
+      p.emit('player:join', { code: s.session.code, nickname: 'Dani' });
+      await once(p, 'player:joined');
+    }
+    terminada.host.emit('host:endGame');
+    enCurso.host.emit('host:startGame');
+    await sleep(150);
+    expect(gateway.roomCount).toBe(3);
+
+    const nueva = await createSession();
+    expect(nueva.session.code).toHaveLength(6);
+    expect(gateway.roomCount).toBe(3);
+    expect(gateway.roomByCode(terminada.session.code)).toBeUndefined();
+    expect(gateway.roomByCode(enCurso.session.code)?.phase).toBe('QUESTION_ACTIVE');
+  });
+
+  it('con el cupo lleno recicla un lobby sin anfitrión conectado', async () => {
+    const abandonada = await createSession();
+    await createSession();
+    await createSession();
+    abandonada.host.close();
+    await sleep(150);
+
+    await createSession();
+    expect(gateway.roomByCode(abandonada.session.code)).toBeUndefined();
+    expect(gateway.roomCount).toBe(3);
+  });
+
   it('no pasa de maxPlayersPerRoom jugadores', async () => {
     // Se reinicia el gateway con un cap chico para no abrir 60 sockets.
     for (const c of clients.splice(0)) c.close();

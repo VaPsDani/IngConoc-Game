@@ -191,8 +191,24 @@ export class Gateway {
 
   // --- Ciclo de vida de la sala -------------------------------------------
 
+  /**
+   * Con el cupo lleno, libera una sala que ya no sirve: primero las
+   * terminadas, luego lobbies sin anfitrión conectado. Una partida en curso
+   * nunca se recicla. Sin esto, cada "Nueva sala" dejaba la anterior ocupando
+   * cupo 4 h y a la tercera ya no se podía crear ninguna.
+   */
+  private evictForNewRoom(): boolean {
+    const rooms = [...this.byCode.values()].sort((a, b) => a.lastActivityAt - b.lastActivityAt);
+    const victim =
+      rooms.find((r) => r.phase === 'FINAL') ??
+      rooms.find((r) => r.phase === 'LOBBY' && r.hostSocketId === null);
+    if (!victim) return false;
+    this.destroyRoom(victim, `reciclada para una sala nueva (estaba en ${victim.phase})`);
+    return true;
+  }
+
   private createRoom(quiz: Quiz): Room | null {
-    if (this.byCode.size >= this.config.maxRooms) return null;
+    if (this.byCode.size >= this.config.maxRooms && !this.evictForNewRoom()) return null;
     const code = generateUniqueCode((c) => this.byCode.has(c));
     const room = new Room(quiz, code, Date.now(), (event, detail) => log(event, detail), {
       maxPlayers: this.config.maxPlayersPerRoom,

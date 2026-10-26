@@ -160,6 +160,7 @@ export default function HostScreen() {
   }, []);
 
   const newSession = useCallback(() => {
+    setError(null);
     hostStore.clear();
     setFinal(null);
     setReveal(null);
@@ -181,7 +182,20 @@ export default function HostScreen() {
 
       {!needsKey && !session && (
         <Centered>
-          <p className="text-3xl text-white/60">Creando sala…</p>
+          {error ? (
+            <div className="max-w-xl text-center">
+              <p className="text-3xl text-rose-300">{error}</p>
+              <button
+                type="button"
+                onClick={newSession}
+                className="mt-6 rounded-2xl bg-emerald-400 px-8 py-4 text-2xl font-bold text-emerald-950"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : (
+            <p className="text-3xl text-white/60">Creando sala…</p>
+          )}
         </Centered>
       )}
 
