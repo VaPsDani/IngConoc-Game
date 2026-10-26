@@ -40,6 +40,8 @@ type ServerState = {
 
 export default function PlayerScreen() {
   const socketRef = useRef<GameSocket | null>(null);
+  /** Código con el que se pidió entrar, para guardarlo junto a la sesión. */
+  const joinCodeRef = useRef<string | null>(null);
   const clockRef = useRef(new ClientClock());
 
   const [status, setStatus] = useState<Status>({ kind: 'join' });
@@ -64,6 +66,10 @@ export default function PlayerScreen() {
       setConnected(true);
       // Reconexion: el servidor devuelve el estado completo, incluido si ya
       // respondio esta pregunta. Sin esto se pierde el puntaje acumulado.
+      // Un QR de otra sala manda sobre la sesión vieja: sin esto, al empezar
+      // una partida nueva el celular volvía a la sala terminada.
+      const urlCode = normalizeCode(new URLSearchParams(window.location.search).get('c') ?? '');
+      if (urlCode && playerStore.get()?.code !== urlCode) playerStore.clear();
       const saved = playerStore.get();
       if (saved) {
         socket.emit('player:resume', {
@@ -79,7 +85,7 @@ export default function PlayerScreen() {
     socket.on('disconnect', () => setConnected(false));
 
     socket.on('player:joined', (p) => {
-      playerStore.set(p);
+      playerStore.set({ ...p, code: joinCodeRef.current ?? playerStore.get()?.code });
       setMyNickname(p.nickname);
       setStatus({ kind: 'in' });
       setError(null);
@@ -140,6 +146,7 @@ export default function PlayerScreen() {
     }
     setError(null);
     setStatus({ kind: 'joining' });
+    joinCodeRef.current = cleanCode;
     socket.emit('player:join', { code: cleanCode, nickname });
   }, [code, nickname]);
 
@@ -294,6 +301,16 @@ export default function PlayerScreen() {
           <p className="mt-2 text-2xl font-bold">{state?.myScore ?? 0} pts</p>
           <p className="mt-4 text-white/50">{myNickname}</p>
           <p className="mt-4 text-sm text-white/40">El podio está en la pantalla grande.</p>
+          <button
+            type="button"
+            onClick={() => {
+              playerStore.clear();
+              window.location.href = '/';
+            }}
+            className="mt-6 w-full rounded-xl bg-white/10 px-4 py-3 font-semibold ring-1 ring-white/20 active:scale-[0.98]"
+          >
+            Entrar a otra sala
+          </button>
         </Card>
       )}
     </Shell>

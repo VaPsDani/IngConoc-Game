@@ -123,6 +123,8 @@ export type StoredPlayer = {
   playerId: string;
   token: string;
   nickname: string;
+  /** Sala en la que entró. Si el QR apunta a otra, la sesión se descarta. */
+  code?: string;
 };
 
 export type StoredHost = {
