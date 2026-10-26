@@ -85,10 +85,10 @@ Todas en [`apps/web/src/game/physics.ts`](apps/web/src/game/physics.ts).
 |---|---|---|
 | `LOGICAL_W` / `LOGICAL_H` | 400 × 700 | Mundo lógico fijo. Todo se escala con letterboxing; la barra de Safari no altera nada. |
 | `GRAVITY` | 2200 px/s² | Sube ⇒ todos los saltos son más bajos. |
-| `V_MIN` | 900 px/s | Con `power = 0`. Deliberadamente **insuficiente** (ápice 184 < 380). |
+| `V_MIN` | 900 px/s | Con `power = 0`. Deliberadamente **insuficiente** (ápice 184 < 360). |
 | `V_MAX` | 1600 px/s | Con `power = 1`. Deliberadamente **excesiva** (ápice 582 > 470): choca. |
 | `CHARGE_PERIOD_MS` | 900 ms | El medidor va 0→1 y rebota. Sube ⇒ más fácil clavar el punto. |
-| `PLATFORM_TOP_DY` | 380 px | Superficie del nenúfar sobre los pies del sapo. Piso de la ventana. |
+| `PLATFORM_TOP_DY` | 360 px | Superficie del nenúfar sobre los pies del sapo. Piso de la ventana. |
 | `BRANCH_DY` | 470 px | Rama espinosa. Techo de la ventana. |
 | `PLATFORM_W` | 78 px | Cosmético: el salto es vertical, no se puede fallar de lado. |
 | `RAIL_SLIDE_MS` | 300 ms | Animación del deslizamiento. Puramente visual. |
@@ -102,18 +102,18 @@ Fuera de `PHYSICS` porque no son física: `FIXED_DT = 1/120 s`.
 ```
 ápice(power) = lerp(V_MIN, V_MAX, power)² / (2 · GRAVITY)
 
-power_min = (√(2·2200·380) − 900) / 700 = 0.561512
+power_min = (√(2·2200·360) − 900) / 700 = 0.512244
 power_max = (√(2·2200·470) − 900) / 700 = 0.768649
 ```
 
 | | valor |
 |---|---|
-| ventana | `[0.561512, 0.768649]` |
-| ancho | **20.71 % del medidor** |
-| centro | `0.665080` |
-| en tiempo de hold | 505 ms → 692 ms, **187 ms de margen** |
+| ventana | `[0.512244, 0.768649]` |
+| ancho | **25.64 % del medidor** |
+| centro | `0.640446` |
+| en tiempo de hold | 461 ms → 692 ms, **231 ms de margen** |
 
-`precision = 1 − |power − 0.665080| / 0.103568`, clamp 0..1.
+`precision = 1 − |power − 0.640446| / 0.128203`, clamp 0..1.
 
 **El medidor no dibuja la ventana.** A propósito: la referencia visual son el
 nenúfar y las espinas, dibujados exactamente donde la física los evalúa.
@@ -334,7 +334,7 @@ El test de equidad del Paso 1 sigue pasando sin tocarse:
 [equidad] experto  (target=centro, sigma=0.06)  n=2000  A=91.85% B=91.85% C=91.85% D=91.85%  spread=0.0000 pp
 [equidad] promedio (target=centro, sigma=0.12)  n=2000  A=60.60% B=60.60% C=60.60% D=60.60%  spread=0.0000 pp
 [equidad] novato   (target=0.50,   sigma=0.25)  n=2000  A=27.00% B=27.00% C=27.00% D=27.00%  spread=0.0000 pp
-[ventana] power valido = [0.561512, 0.768649]  ancho=20.71%  centro=0.665080
+[ventana] power valido = [0.512244, 0.768649]  ancho=25.64%  centro=0.640446
 ```
 
 ## Prueba de carga

@@ -161,7 +161,7 @@ Si se cumple, el **único** cambio permitido es ensanchar la ventana subiendo
 
 | `BRANCH_DY` | Ventana de `power` |
 |---|---|
-| 470 (actual) | 20.71 % |
+| 470 (actual) | 25.64 % |
 | 500 | 27.2 % |
 | 530 | 33.4 % |
 
