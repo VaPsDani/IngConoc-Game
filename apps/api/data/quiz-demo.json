@@ -1,177 +1,212 @@
 {
   "id": "ic-demo",
-  "title": "Ingeniería del Conocimiento — repaso",
+  "title": "Semana 10 — Aplicar conocimiento: quiz de decisiones",
   "questions": [
     {
-      "id": "q1-componentes",
-      "prompt": "En la arquitectura clásica de un sistema experto, ¿qué componente almacena el conocimiento del dominio como hechos y reglas, separado del mecanismo que razona sobre él?",
-      "timeLimitSec": 25,
-      "options": [
-        {
-          "id": "q1-a",
-          "label": "A",
-          "text": "El motor de inferencia",
-          "color": "#7ee3a0",
-          "isCorrect": false
-        },
-        {
-          "id": "q1-b",
-          "label": "B",
-          "text": "La base de conocimiento",
-          "color": "#ffce5c",
-          "isCorrect": true
-        },
-        {
-          "id": "q1-c",
-          "label": "C",
-          "text": "La memoria de trabajo",
-          "color": "#8ec9ff",
-          "isCorrect": false
-        },
-        {
-          "id": "q1-d",
-          "label": "D",
-          "text": "El módulo de explicación",
-          "color": "#ff9ec4",
-          "isCorrect": false
-        }
-      ]
-    },
-    {
-      "id": "q2-encadenamiento",
-      "prompt": "Un sistema de diagnóstico parte de la hipótesis «el paciente tiene gripe» y busca reglas cuyo CONSECUENTE sea esa hipótesis, para luego verificar sus antecedentes. ¿Qué estrategia de inferencia está usando?",
-      "timeLimitSec": 25,
-      "options": [
-        {
-          "id": "q2-a",
-          "label": "A",
-          "text": "Encadenamiento hacia adelante",
-          "color": "#7ee3a0",
-          "isCorrect": false
-        },
-        {
-          "id": "q2-b",
-          "label": "B",
-          "text": "Razonamiento basado en casos",
-          "color": "#ffce5c",
-          "isCorrect": false
-        },
-        {
-          "id": "q2-c",
-          "label": "C",
-          "text": "Encadenamiento hacia atrás",
-          "color": "#8ec9ff",
-          "isCorrect": true
-        },
-        {
-          "id": "q2-d",
-          "label": "D",
-          "text": "Búsqueda en anchura sobre los hechos",
-          "color": "#ff9ec4",
-          "isCorrect": false
-        }
-      ]
-    },
-    {
-      "id": "q3-conflictos",
-      "prompt": "En el ciclo de un sistema de producción, varias reglas resultan aplicables a la vez sobre la memoria de trabajo. ¿Cómo se llama la fase que decide cuál de ellas se dispara?",
-      "timeLimitSec": 25,
-      "options": [
-        {
-          "id": "q3-a",
-          "label": "A",
-          "text": "Emparejamiento (matching)",
-          "color": "#7ee3a0",
-          "isCorrect": false
-        },
-        {
-          "id": "q3-b",
-          "label": "B",
-          "text": "Unificación",
-          "color": "#ffce5c",
-          "isCorrect": false
-        },
-        {
-          "id": "q3-c",
-          "label": "C",
-          "text": "Encadenamiento",
-          "color": "#8ec9ff",
-          "isCorrect": false
-        },
-        {
-          "id": "q3-d",
-          "label": "D",
-          "text": "Resolución de conflictos",
-          "color": "#ff9ec4",
-          "isCorrect": true
-        }
-      ]
-    },
-    {
-      "id": "q4-ontologias",
-      "prompt": "En una ontología, «Perro es-un Mamífero» relaciona dos CLASES. ¿Qué expresa exactamente esa relación?",
-      "timeLimitSec": 25,
-      "options": [
-        {
-          "id": "q4-a",
-          "label": "A",
-          "text": "Subsunción: Perro es subclase de Mamífero y hereda sus propiedades",
-          "color": "#7ee3a0",
-          "isCorrect": true
-        },
-        {
-          "id": "q4-b",
-          "label": "B",
-          "text": "Instanciación: Perro es un individuo concreto de Mamífero",
-          "color": "#ffce5c",
-          "isCorrect": false
-        },
-        {
-          "id": "q4-c",
-          "label": "C",
-          "text": "Composición: Mamífero está formado por partes Perro",
-          "color": "#8ec9ff",
-          "isCorrect": false
-        },
-        {
-          "id": "q4-d",
-          "label": "D",
-          "text": "Equivalencia: Perro y Mamífero denotan el mismo conjunto",
-          "color": "#ff9ec4",
-          "isCorrect": false
-        }
-      ]
-    },
-    {
-      "id": "q5-adquisicion",
-      "prompt": "Se llama «cuello de botella de la adquisición del conocimiento» a un problema clásico de la ingeniería del conocimiento. ¿A cuál?",
+      "id": "d1",
+      "prompt": "Una mesa de ayuda sube un manual a una carpeta. Nadie lo usa en los tickets. ¿Qué fase predomina?",
       "timeLimitSec": 30,
       "options": [
         {
-          "id": "q5-a",
+          "id": "d1-a",
           "label": "A",
-          "text": "El motor de inferencia se vuelve lento cuando hay muchas reglas",
+          "text": "Aplicación",
           "color": "#7ee3a0",
           "isCorrect": false
         },
         {
-          "id": "q5-b",
+          "id": "d1-b",
           "label": "B",
-          "text": "La base de conocimiento no cabe en memoria principal",
+          "text": "Almacenamiento",
+          "color": "#ffce5c",
+          "isCorrect": true
+        },
+        {
+          "id": "d1-c",
+          "label": "C",
+          "text": "Evaluación del resultado",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "d1-d",
+          "label": "D",
+          "text": "Transferencia",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "d2",
+      "prompt": "Un agente usa una guía vigente para resolver una falla y registra qué pasos funcionaron. ¿Qué observamos?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "d2-a",
+          "label": "A",
+          "text": "Aplicación con retroalimentación",
+          "color": "#7ee3a0",
+          "isCorrect": true
+        },
+        {
+          "id": "d2-b",
+          "label": "B",
+          "text": "Solo transferencia",
           "color": "#ffce5c",
           "isCorrect": false
         },
         {
-          "id": "q5-c",
+          "id": "d2-c",
           "label": "C",
-          "text": "Extraer y formalizar el conocimiento tácito del experto humano es lento y difícil",
+          "text": "Solo adquisición",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "d2-d",
+          "label": "D",
+          "text": "Solo almacenamiento",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "d3",
+      "prompt": "Una guía recomienda reiniciar el router, pero el usuario necesita conservar una sesión crítica. ¿Qué decisión corresponde?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "d3-a",
+          "label": "A",
+          "text": "Reiniciar siempre",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "d3-b",
+          "label": "B",
+          "text": "Ignorar todas las guías",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "d3-c",
+          "label": "C",
+          "text": "Revisar las condiciones y escalar si el caso excede la guía",
           "color": "#8ec9ff",
           "isCorrect": true
         },
         {
-          "id": "q5-d",
+          "id": "d3-d",
           "label": "D",
-          "text": "Los usuarios finales no confían en las explicaciones del sistema",
+          "text": "Reiniciar y registrar el resultado después",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "d4",
+      "prompt": "Dos especialistas deben aprobar un cambio: primero seguridad y luego despliegue. ¿Qué mecanismo predomina?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "d4-a",
+          "label": "A",
+          "text": "Secuencia de trabajo",
+          "color": "#7ee3a0",
+          "isCorrect": true
+        },
+        {
+          "id": "d4-b",
+          "label": "B",
+          "text": "Repositorio documental",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "d4-c",
+          "label": "C",
+          "text": "Encuesta de satisfacción",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "d4-d",
+          "label": "D",
+          "text": "Capacitación general",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "d5",
+      "prompt": "Una incidencia desconocida requiere reunir a soporte, redes y seguridad. ¿Qué mecanismo ayuda más?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "d5-a",
+          "label": "A",
+          "text": "Publicar otra carpeta",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "d5-b",
+          "label": "B",
+          "text": "Resolución conjunta de problemas",
+          "color": "#ffce5c",
+          "isCorrect": true
+        },
+        {
+          "id": "d5-c",
+          "label": "C",
+          "text": "Aplicar automáticamente una guía antigua",
+          "color": "#8ec9ff",
+          "isCorrect": false
+        },
+        {
+          "id": "d5-d",
+          "label": "D",
+          "text": "Esperar a que vuelva el experto",
+          "color": "#ff9ec4",
+          "isCorrect": false
+        }
+      ]
+    },
+    {
+      "id": "d6",
+      "prompt": "¿Qué evidencia muestra mejor que el conocimiento está ayudando a resolver problemas?",
+      "timeLimitSec": 30,
+      "options": [
+        {
+          "id": "d6-a",
+          "label": "A",
+          "text": "Número de documentos subidos",
+          "color": "#7ee3a0",
+          "isCorrect": false
+        },
+        {
+          "id": "d6-b",
+          "label": "B",
+          "text": "Número de visitas a la carpeta",
+          "color": "#ffce5c",
+          "isCorrect": false
+        },
+        {
+          "id": "d6-c",
+          "label": "C",
+          "text": "Menor proporción de tickets reabiertos, junto con revisión de calidad",
+          "color": "#8ec9ff",
+          "isCorrect": true
+        },
+        {
+          "id": "d6-d",
+          "label": "D",
+          "text": "Número de agentes capacitados",
           "color": "#ff9ec4",
           "isCorrect": false
         }
